@@ -36,10 +36,19 @@
         </div>
 
         <div class="field">
-          <label for="region">地域</label>
-          <select id="region">
-            <option value="" selected disabled>请选择省/地区</option>
-          </select>
+          <label for="regionInput">收货地址 / 省份（可输入/可下拉）</label>
+          <div class="combo">
+            <input
+              id="regionInput"
+              placeholder="例如：广东 / 内蒙古 / 舟山 / 延安"
+              autocomplete="off"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck="false"
+            />
+            <div id="regionSuggest" class="suggestions" role="listbox" aria-label="地域建议"></div>
+          </div>
+          <div class="hint">支持输入完整地址（如“广东省深圳市xx路”），会自动识别省份；舟山/延安也可直接输入。</div>
         </div>
 
         <div class="field field-inline">

@@ -1,6 +1,6 @@
 /* 离线缓存（PWA） */
 
-const CACHE_NAME = "shipping-h5-v1";
+const CACHE_NAME = "shipping-h5-v2";
 const PRECACHE_URLS = [
   "./",
   "./index.html",
@@ -57,4 +57,3 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
-
