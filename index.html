@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b5fff" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <title>运费计算器</title>
+
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./assets/icon.svg" />
+
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="header">
+        <div class="app-title">
+          <h1>运费计算器</h1>
+          <p class="subtitle">输入重量与地域，自动计算运费</p>
+        </div>
+      </header>
+
+      <section class="card">
+        <div class="field">
+          <label for="weight">重量（kg）</label>
+          <input
+            id="weight"
+            inputmode="decimal"
+            placeholder="例如：12 或 12.6"
+            autocomplete="off"
+          />
+          <div class="hint">按“计费重量”输入；如你的计费规则需要向上取整，请开启下方开关。</div>
+        </div>
+
+        <div class="field">
+          <label for="region">地域</label>
+          <select id="region">
+            <option value="" selected disabled>请选择省/地区</option>
+          </select>
+        </div>
+
+        <div class="field field-inline">
+          <div class="switch">
+            <input id="ceilWeight" type="checkbox" checked />
+            <label for="ceilWeight">重量向上取整（常见快递计费）</label>
+          </div>
+        </div>
+
+        <button id="calcBtn" class="primary" type="button">计算</button>
+
+        <div id="result" class="result" aria-live="polite"></div>
+      </section>
+
+      <section class="card card-muted">
+        <details>
+          <summary>查看规则说明</summary>
+          <div class="rules">
+            <p>优先级：特殊地区价（如命中）→ 常规地址。新疆/西藏不发快递。</p>
+            <ul>
+              <li>特殊地区价：海南=重量×4；甘肃/青海=重量×2.5；云南/宁夏=重量×2；四川/福建/吉林/舟山/延安/广西/贵州=重量×1.8。</li>
+              <li>常规地址（≤12kg）：甘肃/宁夏/云南/广西/青海/贵州/海南/内蒙=重量×5.5，其它=重量×3。</li>
+              <li>常规地址（>12kg）：13–15kg按15kg：15×1.5+10；16–20kg按20kg：20×1.5+10；21–89kg=重量×1.5+10；≥90kg=重量×1.5。</li>
+            </ul>
+          </div>
+        </details>
+      </section>
+
+      <footer class="footer">
+        <p class="footer-text">
+          离线使用：首次在 Safari 打开后，选择“分享”→“添加到主屏幕”；之后从主屏打开可在无网环境使用。
+        </p>
+      </footer>
+    </main>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>
