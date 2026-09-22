@@ -6478,11 +6478,11 @@ function calcShipping({ weightInput, region, ceilWeight }) {
   // >12kg：先看特殊地区价
   if (SPECIAL_RATE.has(regionNorm)) {
     const rate = SPECIAL_RATE.get(regionNorm);
-    const money = w * rate;
+    const money = w * rate + 10;
     return {
       ok: true, money, rate,
       message: `运费：¥${formatMoney(money)}`,
-      meta: `>12kg特殊地区价：${regionNorm} = 重量 × ${rate}；计费重量=${w}`,
+      meta: `>12kg特殊地区价：${regionNorm} = 重量 × ${rate} + 10；计费重量=${w}`,
     };
   }
 
