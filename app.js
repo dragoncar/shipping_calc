@@ -6597,6 +6597,99 @@ function renderEditShortcuts(shortcuts) {
 // 设置页面
 // ==============================
 
+function getProductTotal() {
+  const rows = document.querySelectorAll(".product-row");
+  let total = 0;
+  for (const row of rows) {
+    const w = parseFloat(row.querySelector(".pw").value);
+    const q = parseInt(row.querySelector(".pq").value, 10);
+    if (!isNaN(w) && w > 0 && !isNaN(q) && q > 0) {
+      total += w * q;
+    }
+  }
+  return total;
+}
+
+function getProductMode() {
+  return document.querySelector('.tab-btn.active')?.dataset?.tab === "multi";
+}
+
+function renderProductRows() {
+  const tbody = document.querySelector("#productTable tbody");
+  const rows = tbody.querySelectorAll(".product-row");
+  // 如果没有任何行，添加一行
+  if (rows.length === 0) addProductRow();
+
+  // 更新合计
+  updateProductSummary();
+}
+
+function addProductRow() {
+  const tbody = document.querySelector("#productTable tbody");
+  const row = document.createElement("tr");
+  row.className = "product-row";
+  row.innerHTML = `
+    <td><input class="pn" type="text" placeholder="选填" autocomplete="off" /></td>
+    <td><input class="pw" type="number" step="0.01" min="0" placeholder="0" inputmode="decimal" /></td>
+    <td><input class="pq" type="number" min="1" value="1" /></td>
+    <td class="ps">0 kg</td>
+    <td><button class="del-row" type="button" title="删除">✕</button></td>
+  `;
+  tbody.appendChild(row);
+  bindProductRowEvents(row);
+  updateProductSummary();
+}
+
+function bindProductRowEvents(row) {
+  const inputs = row.querySelectorAll("input");
+  for (const inp of inputs) {
+    inp.addEventListener("input", () => {
+      updateRowSubtotal(row);
+      updateProductSummary();
+    });
+  }
+  const delBtn = row.querySelector(".del-row");
+  if (delBtn) {
+    delBtn.addEventListener("click", () => {
+      const rows = document.querySelectorAll(".product-row");
+      if (rows.length <= 1) return;
+      row.remove();
+      updateProductSummary();
+    });
+  }
+}
+
+function updateRowSubtotal(row) {
+  const w = parseFloat(row.querySelector(".pw").value);
+  const q = parseInt(row.querySelector(".pq").value, 10);
+  const cell = row.querySelector(".ps");
+  if (!isNaN(w) && w > 0 && !isNaN(q) && q > 0) {
+    cell.textContent = (w * q).toFixed(2) + " kg";
+  } else {
+    cell.textContent = "0 kg";
+  }
+}
+
+function updateProductSummary() {
+  const total = getProductTotal();
+  const ceilEl = document.getElementById("ceilWeight");
+  const ceil = ceilEl && ceilEl.checked ? Math.ceil(total) : total;
+  const el = document.getElementById("productTotal");
+  if (el) {
+    el.textContent = `合计重量：${total.toFixed(2)} kg` + (ceil !== total ? `（向上取整：${ceil} kg）` : "");
+  }
+}
+
+function switchMode(mode) {
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tab === mode);
+  });
+  document.getElementById("singleMode").classList.toggle("hidden", mode === "multi");
+  document.getElementById("multiMode").classList.toggle("hidden", mode === "single");
+  // 切到多商品时渲染行
+  if (mode === "multi") renderProductRows();
+}
+
 function setup() {
   const weightEl = $("weight");
   const regionEl = $("regionInput");
@@ -6610,17 +6703,53 @@ function setup() {
   let weightShortcuts = loadWeightShortcuts();
   renderWeightShortcuts(weightShortcuts);
 
+  // 获取有效重量
+  const getEffectiveWeight = () => {
+    if (getProductMode()) {
+      return getProductTotal();
+    }
+    return parseFloat(weightEl.value) || 0;
+  };
+
   // 计算 & 渲染
   const doCalc = () => {
     const region = regionEl.value;
-    const w0 = (weightEl.value ?? "").trim();
     const ceilWeight = !!ceilEl.checked;
+
+    if (getProductMode()) {
+      // 多商品模式
+      const totalW = getProductTotal();
+      if (totalW <= 0) {
+        $("result").innerHTML = `<div class="bad">请填写商品重量。</div>`;
+        $("copyBtnWrap").innerHTML = "";
+        return;
+      }
+      const wInput = ceilWeight ? Math.ceil(totalW) : totalW;
+      const payload = calcShipping({ weightInput: String(wInput), region, ceilWeight: false });
+      // 多商品已经取过整了，传给calcShipping时ceilWeight=false避免二次取整
+      const wUsed = ceilWeight ? Math.ceil(totalW) : totalW;
+      renderResult(payload, { region: normalizeRegion(region) || region, w0: totalW.toFixed(2), wUsed, ceilWeight: true });
+      return;
+    }
+
+    // 单商品模式
+    const w0 = (weightEl.value ?? "").trim();
     const payload = calcShipping({ weightInput: w0, region, ceilWeight });
 
     const wParsed = parseWeight(w0);
     const wUsed = wParsed == null ? null : (ceilWeight ? Math.ceil(wParsed) : wParsed);
     renderResult(payload, { region: normalizeRegion(region) || region, w0: wParsed ?? "-", wUsed, ceilWeight });
   };
+
+  // ---------- 模式切换 ----------
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      switchMode(btn.dataset.tab);
+      // 清空结果
+      $("result").innerHTML = `<div class="meta">请${getProductMode() ? "填写商品清单" : "输入重量"}后点击"计算"。</div>`;
+      $("copyBtnWrap").innerHTML = "";
+    });
+  });
 
   // ---------- 事件绑定 ----------
   btn.addEventListener("click", doCalc);
@@ -6655,12 +6784,20 @@ function setup() {
     doCalc();
   });
 
-  ceilEl.addEventListener("change", doCalc);
+  ceilEl.addEventListener("change", () => {
+    if (getProductMode()) {
+      updateProductSummary();
+    }
+    doCalc();
+  });
 
   weightEl.addEventListener("input", () => {
     window.clearTimeout(setup._t);
     setup._t = window.setTimeout(doCalc, 150);
   });
+
+  // ---------- 添加入口 ----------
+  document.getElementById("addRowBtn")?.addEventListener("click", addProductRow);
 
   // ---------- 重量快捷键 ----------
   shortcutsWrap.addEventListener("click", (e) => {
@@ -6676,16 +6813,13 @@ function setup() {
       return;
     }
 
-    // 编辑按钮
     if (e.target.id === "editShortcutsBtn") {
       renderEditShortcuts(weightShortcuts);
-      // 自动聚焦第一个输入
       const firstInput = shortcutsWrap.querySelector(".shortcut-input");
       if (firstInput) setTimeout(() => firstInput.focus(), 50);
       return;
     }
 
-    // 保存按钮
     if (e.target.id === "saveShortcutsBtn") {
       const inputs = shortcutsWrap.querySelectorAll(".shortcut-input");
       const newVals = [];
@@ -6719,6 +6853,12 @@ function setup() {
     weightEl.value = "";
     regionEl.value = "";
     ceilEl.checked = true;
+    // 清理多商品表格
+    const tbody = document.querySelector("#productTable tbody");
+    if (tbody) {
+      tbody.innerHTML = "";
+      addProductRow();
+    }
     $("result").innerHTML = `<div class="meta">请输入重量并选择地域后点击"计算"。</div>`;
     $("copyBtnWrap").innerHTML = "";
     renderSuggestList(getRegionSuggestions(""));
