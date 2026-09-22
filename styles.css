@@ -148,8 +148,17 @@ input:focus, select:focus{
   color: var(--muted);
 }
 
+/* 按钮行（计算 + 重置） */
+.action-row{
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+.action-row .primary{
+  flex: 1;
+}
+
 .primary{
-  width: 100%;
   padding: 12px 14px;
   border: 0;
   border-radius: 12px;
@@ -159,9 +168,87 @@ input:focus, select:focus{
   font-weight: 700;
   letter-spacing: .5px;
   box-shadow: 0 10px 20px rgba(11,95,255,.22);
+  cursor: pointer;
 }
 .primary:active{ transform: translateY(1px); }
 
+.btn-secondary{
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-secondary:active{
+  background: #f1f5f9;
+}
+
+/* 重量快捷键 */
+.shortcuts-row{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  align-items: center;
+}
+.shortcut-pill{
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: #f8fafc;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .15s;
+}
+.shortcut-pill:active{
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+
+.shortcut-edit{
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.shortcut-edit:active{
+  background: #f1f5f9;
+}
+.shortcut-edit.active{
+  color: var(--ok);
+  font-weight: 700;
+}
+
+.shortcut-input{
+  width: 80px;
+  padding: 6px 8px;
+  border: 1px solid var(--brand);
+  border-radius: 8px;
+  font-size: 14px;
+  text-align: center;
+  outline: none;
+}
+.shortcut-input:focus{
+  box-shadow: 0 0 0 3px rgba(11,95,255,.15);
+}
+
+/* 结果区 */
 .result{
   margin-top: 12px;
   border-top: 1px dashed var(--line);
@@ -183,6 +270,15 @@ input:focus, select:focus{
   font-size: 12px;
 }
 
+/* 复制按钮 */
+.copy-wrap{
+  margin-top: 10px;
+}
+.copy-wrap .btn-secondary{
+  width: 100%;
+}
+
+/* 规则说明 */
 details summary{
   cursor: pointer;
   font-weight: 700;
