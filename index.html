@@ -19,56 +19,22 @@
       <header class="header">
         <div class="app-title">
           <h1>运费计算器</h1>
-          <p class="subtitle">支持单商品/多商品输入，自动汇总重量计算运费</p>
+          <p class="subtitle">输入重量与地域，自动计算运费</p>
         </div>
       </header>
 
       <section class="card">
-        <!-- 模式切换 -->
-        <div class="tab-bar">
-          <button class="tab-btn active" data-tab="single" type="button">单商品</button>
-          <button class="tab-btn" data-tab="multi" type="button">多商品</button>
-        </div>
-
-        <!-- 单商品模式 -->
-        <div id="singleMode">
-          <div class="field">
-            <label for="weight">重量（kg）</label>
-            <input
-              id="weight"
-              inputmode="decimal"
-              placeholder="例如：12 或 12.6"
-              autocomplete="off"
-            />
-            <div class="hint">按"计费重量"输入；如你的计费规则需要向上取整，请开启下方开关。</div>
-            <!-- 重量快捷键 -->
-            <div id="weightShortcuts" class="shortcuts-row"></div>
-          </div>
-        </div>
-
-        <!-- 多商品模式 -->
-        <div id="multiMode" class="hidden">
-          <div class="field">
-            <label>商品清单</label>
-            <div class="table-wrap">
-              <table id="productTable">
-                <thead>
-                  <tr>
-                    <th class="th-name">商品名</th>
-                    <th class="th-w">重量(kg)</th>
-                    <th class="th-q">数量</th>
-                    <th class="th-s">小计</th>
-                    <th class="th-del"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <!-- 由JS动态渲染 -->
-                </tbody>
-              </table>
-            </div>
-            <button id="addRowBtn" class="btn-add-row" type="button">+ 添加一行</button>
-            <div id="productTotal" class="product-total">合计重量：0 kg</div>
-          </div>
+        <div class="field">
+          <label for="weight">重量（kg）</label>
+          <input
+            id="weight"
+            inputmode="decimal"
+            placeholder="例如：12 或 12.6"
+            autocomplete="off"
+          />
+          <div class="hint">按"计费重量"输入；如你的计费规则需要向上取整，请开启下方开关。</div>
+          <!-- 重量快捷键 -->
+          <div id="weightShortcuts" class="shortcuts-row"></div>
         </div>
 
         <div class="field">
