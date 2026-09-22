@@ -6453,29 +6453,40 @@ function calcShipping({ weightInput, region, ceilWeight }) {
 
   const w = ceilWeight ? Math.ceil(w0) : w0;
 
-  // 1) 特殊地区
+  // ≤12kg：全部走常规价
+  if (w <= 12) {
+    // ≤12kg 高单价地区：甘肃/宁夏/云南/广西/青海/贵州/海南/内蒙古
+    if (COMMON_UPTO12_HIGH.has(regionNorm)) {
+      const rate = 5.5;
+      const money = w * rate;
+      return {
+        ok: true, money, rate,
+        message: `运费：¥${formatMoney(money)}`,
+        meta: `≤12kg高单价：${regionNorm} = 重量 × ${rate}；计费重量=${w}`,
+      };
+    }
+    // ≤12kg 普通地区
+    const rate = 3;
+    const money = w * rate;
+    return {
+      ok: true, money, rate,
+      message: `运费：¥${formatMoney(money)}`,
+      meta: `≤12kg普通价：${regionNorm} = 重量 × ${rate}；计费重量=${w}`,
+    };
+  }
+
+  // >12kg：先看特殊地区价
   if (SPECIAL_RATE.has(regionNorm)) {
     const rate = SPECIAL_RATE.get(regionNorm);
     const money = w * rate;
     return {
       ok: true, money, rate,
       message: `运费：¥${formatMoney(money)}`,
-      meta: `命中特殊地区价：${regionNorm} = 重量 × ${rate}；计费重量=${w}`,
+      meta: `>12kg特殊地区价：${regionNorm} = 重量 × ${rate}；计费重量=${w}`,
     };
   }
 
-  // 2) 常规地址
-  if (w <= 12) {
-    const isHigh = COMMON_UPTO12_HIGH.has(regionNorm);
-    const rate = isHigh ? 5.5 : 3;
-    const money = w * rate;
-    return {
-      ok: true, money, rate,
-      message: `运费：¥${formatMoney(money)}`,
-      meta: `常规地址≤12kg：${isHigh ? "指定地区" : "其他地区"} = 重量 × ${rate}；计费重量=${w}`,
-    };
-  }
-
+  // >12kg：未命中特殊价的走阶梯价
   const wForBand = ceilWeight ? w : (w > 12 && w < 13 ? 13 : w);
   let money = 0, meta = "", rate = 1.5;
 
