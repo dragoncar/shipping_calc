@@ -7,50 +7,101 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>运费计算器</title>
-
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/icon.svg" />
-
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main class="container">
       <header class="header">
         <div class="app-title">
-          <h1>运费计算器</h1>
-          <p class="subtitle">输入重量与地域，自动计算运费</p>
+          <h1>运费计算器 v2.5</h1>
+          <p class="subtitle">单商品 / 多商品 / 粘贴订单，自动算运费</p>
         </div>
       </header>
 
       <section class="card">
-        <div class="field">
-          <label for="weight">重量（kg）</label>
-          <input
-            id="weight"
-            inputmode="decimal"
-            placeholder="例如：12 或 12.6"
-            autocomplete="off"
-          />
-          <div class="hint">按"计费重量"输入；如你的计费规则需要向上取整，请开启下方开关。</div>
-          <!-- 重量快捷键 -->
-          <div id="weightShortcuts" class="shortcuts-row"></div>
+        <!-- 模式切换 -->
+        <div class="tab-bar">
+          <button class="tab-btn active" data-tab="single" type="button">单商品</button>
+          <button class="tab-btn" data-tab="multi" type="button">多商品</button>
+          <button class="tab-btn" data-tab="paste" type="button">订单粘贴</button>
         </div>
 
+        <!-- 单商品模式 -->
+        <div id="singleMode">
+          <div class="field">
+            <label for="weight">重量（kg）</label>
+            <input id="weight" inputmode="decimal" placeholder="例如：12 或 12.6" autocomplete="off" />
+            <div class="hint">按"计费重量"输入；如需要向上取整，请开启下方开关。</div>
+            <div id="weightShortcuts" class="shortcuts-row"></div>
+          </div>
+        </div>
+
+        <!-- 多商品模式 -->
+        <div id="multiMode" class="hidden">
+          <div class="field">
+            <label>商品清单</label>
+            <div class="table-wrap">
+              <table id="productTable">
+                <thead>
+                  <tr>
+                    <th class="th-name">商品名</th>
+                    <th class="th-w">重量(kg)</th>
+                    <th class="th-q">数量</th>
+                    <th class="th-s">小计</th>
+                    <th class="th-del"></th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <button id="addRowBtn" class="btn-add-row" type="button">+ 添加一行</button>
+            <div id="productTotal" class="product-total">合计重量：0 kg</div>
+          </div>
+        </div>
+
+        <!-- 订单粘贴模式 -->
+        <div id="pasteMode" class="hidden">
+          <div class="field">
+            <label for="orderText">粘贴订单内容</label>
+            <textarea id="orderText" class="order-textarea" placeholder="从订单页面复制内容后粘贴到这里（Ctrl+V）&#10;&#10;例如：&#10;颜色: 黑色货号: A130黑色&#10;7.00 元/件  8  -  待发货" rows="8"></textarea>
+          </div>
+          <button id="parseOrderBtn" class="btn-secondary btn-full" type="button">🔍 解析订单</button>
+
+          <!-- 解析结果 -->
+          <div id="parseResult" class="hidden">
+            <div class="field">
+              <label>解析结果 <span id="parseStatus" class="parse-status"></span></label>
+              <div class="table-wrap">
+                <table id="parseTable">
+                  <thead>
+                    <tr>
+                      <th>货号</th>
+                      <th>数量</th>
+                      <th>重量(kg)</th>
+                      <th>小计</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div id="parseTotal" class="product-total"></div>
+              <div id="unmatchedHint" class="hint"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 公共区域 -->
         <div class="field">
           <label for="regionInput">收货地址 / 省份（可输入/可下拉）</label>
           <div class="combo">
-            <input
-              id="regionInput"
-              placeholder="例如：广东 / 内蒙古 / 阜阳 / 舟山"
-              autocomplete="off"
-              autocapitalize="off"
-              autocorrect="off"
-              spellcheck="false"
-            />
+            <input id="regionInput" placeholder="例如：广东 / 内蒙古 / 阜阳 / 舟山"
+              autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
             <div id="regionSuggest" class="suggestions" role="listbox" aria-label="地域建议"></div>
           </div>
-          <div class="hint">支持输入完整地址（如"安徽省阜阳市xx路"），会自动识别省份；也支持输入城市名自动识别。</div>
+          <div class="hint">支持输入完整地址或城市名，自动识别省份。</div>
         </div>
 
         <div class="field field-inline">
@@ -69,6 +120,25 @@
         <div id="copyBtnWrap" class="copy-wrap"></div>
       </section>
 
+      <!-- 重量库管理 -->
+      <section class="card card-muted">
+        <details>
+          <summary>📦 重量库管理</summary>
+          <div class="rules">
+            <p>导入 Excel/CSV 建立货号→重量对照表，订单粘贴时自动匹配。</p>
+            <p>Excel 须包含 <strong>产品型号</strong> 和 <strong>重量（kg）</strong> 列。</p>
+            <div class="lib-actions">
+              <input id="libFileInput" type="file" accept=".csv,.xlsx" class="hidden" />
+              <button id="importLibBtn" class="btn-secondary" type="button">📂 导入文件</button>
+              <button id="viewLibBtn" class="btn-secondary" type="button">👁️ 查看库</button>
+              <button id="clearLibBtn" class="btn-secondary" type="button">🗑️ 清空库</button>
+            </div>
+            <div id="libStatus" class="lib-status">当前库：<span id="libCount">0</span> 个货号</div>
+            <div id="libEntries" class="lib-entries hidden"></div>
+          </div>
+        </details>
+      </section>
+
       <section class="card card-muted">
         <details>
           <summary>查看规则说明</summary>
@@ -84,12 +154,10 @@
       </section>
 
       <footer class="footer">
-        <p class="footer-text">
-          离线使用：首次在 Safari 打开后，选择"分享"→"添加到主屏幕"；之后从主屏打开可在无网环境使用。
-        </p>
+        <p class="footer-text">离线使用：首次打开后添加到主屏幕，之后可在无网环境使用。</p>
       </footer>
     </main>
-
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="./app.js" defer></script>
   </body>
 </html>

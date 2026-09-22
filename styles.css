@@ -278,7 +278,129 @@ input:focus, select:focus{
   width: 100%;
 }
 
-/* 规则说明 */
+/* 标签栏 */
+.tab-bar{
+  display: flex;
+  gap: 0;
+  margin-bottom: 14px;
+  background: #f1f5f9;
+  border-radius: 10px;
+  padding: 3px;
+}
+.tab-btn{
+  flex: 1;
+  padding: 8px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+}
+.tab-btn.active{
+  background: #fff;
+  color: var(--text);
+  box-shadow: 0 2px 8px rgba(2,8,23,.08);
+}
+.hidden{ display: none !important; }
+
+/* 多商品表格 */
+.table-wrap{ overflow-x: auto; margin-bottom: 8px; }
+#productTable, #parseTable{
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+#productTable th, #parseTable th{
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+#productTable td, #parseTable td{
+  padding: 4px 4px;
+  vertical-align: middle;
+}
+#productTable input, #parseTable input{
+  width: 100%;
+  padding: 8px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+  outline: none;
+}
+#productTable input:focus, #parseTable input:focus{
+  border-color: rgba(11,95,255,.5);
+  box-shadow: 0 0 0 3px rgba(11,95,255,.12);
+}
+#productTable input.pn{ min-width: 70px; }
+#productTable input.pw{ min-width: 50px; }
+#productTable input.pq{ min-width: 40px; text-align: center; }
+.th-name{ width: auto; }
+.th-w{ width: 80px; }
+.th-q{ width: 55px; }
+.th-s{ width: 65px; text-align: right !important; }
+.th-del{ width: 30px; }
+.product-row td.ps, #parseTable td{ text-align: right; font-weight: 600; color: var(--text); font-size: 12px; padding-right: 8px; white-space: nowrap; }
+#parseTable td:first-child{ text-align: left; font-weight: 500; }
+#parseTable td:nth-child(2){ text-align: center; }
+#parseTable td:nth-child(3){ text-align: center; }
+#parseTable td:nth-child(4){ text-align: right; }
+.pw-input{ width: 70px !important; text-align: center; }
+.pq-val{ text-align: center !important; }
+
+.del-row{
+  width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: #94a3b8; font-size: 14px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.del-row:active{ background: #fee2e2; color: var(--danger); }
+
+.btn-add-row{
+  display: block; width: 100%; padding: 8px;
+  border: 1px dashed var(--line); border-radius: 8px;
+  background: transparent; color: var(--brand); font-size: 13px; font-weight: 500;
+  cursor: pointer; margin-bottom: 8px;
+}
+.btn-add-row:active{ background: rgba(11,95,255,.05); }
+
+.product-total{
+  font-size: 14px; font-weight: 700; color: var(--text); padding: 6px 0 2px;
+}
+
+/* 订单粘贴 */
+.order-textarea{
+  width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 12px;
+  outline: none; background: #fff; font-size: 13px; color: var(--text);
+  font-family: inherit; line-height: 1.6; resize: vertical; min-height: 120px;
+}
+.order-textarea:focus{
+  border-color: rgba(11,95,255,.5); box-shadow: 0 0 0 4px rgba(11,95,255,.15);
+}
+.btn-full{ width: 100%; }
+.parse-status{ font-weight: 400; font-size: 12px; color: var(--muted); }
+
+/* 重量库管理 */
+.lib-actions{
+  display: flex; gap: 8px; margin: 10px 0;
+}
+.lib-actions .btn-secondary{ flex: 1; text-align: center; }
+.lib-status{
+  font-size: 13px; color: var(--muted); margin-top: 6px;
+}
+.lib-status span{ font-weight: 700; color: var(--text); }
+.lib-entries{ margin-top: 8px; max-height: 200px; overflow-y: auto; }
+.lib-count-hint{ font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.lib-grid{ display: flex; flex-wrap: wrap; gap: 4px; }
+.lib-tag{
+  display: inline-block; padding: 2px 8px; background: #f1f5f9;
+  border-radius: 4px; font-size: 11px; color: var(--text); white-space: nowrap;
+}
 details summary{
   cursor: pointer;
   font-weight: 700;

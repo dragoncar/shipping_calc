@@ -1,6 +1,6 @@
 /* 离线缓存（PWA） */
 
-const CACHE_NAME = "shipping-h5-v1.2";
+const CACHE_NAME = "shipping-h5-v1.3";
 const PRECACHE_URLS = [
   "./",
   "./index.html",
@@ -8,6 +8,7 @@ const PRECACHE_URLS = [
   "./app.js",
   "./manifest.webmanifest",
   "./assets/icon.svg",
+  "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
 ];
 
 self.addEventListener("install", (event) => {
