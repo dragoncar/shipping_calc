@@ -1,4 +1,4 @@
-/* 运费计算器（离线 H5）v2.5 */
+/* 运费计算器（离线 H5）v2.6 */
 
 // ==============================
 // 常量数据
@@ -541,8 +541,13 @@ function setup() {
   document.querySelectorAll(".tab-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       switchMode(btn.dataset.tab);
-      $("result").innerHTML = `<div class="meta">请${({single:"输入重量",multi:"填写商品清单",paste:"粘贴订单"})[getMode()]}后点击"计算"。</div>`;
+      $("result").innerHTML = `<div class="meta">请${({single:"输入重量",multi:"填写商品清单",paste:"智能计算"})[getMode()]}后点击"计算"。</div>`;
       $("copyBtnWrap").innerHTML = "";
+      // 智能计算模式下检查重量库
+      if (btn.dataset.tab === "paste" && getLibCount() === 0) {
+        const hint = document.getElementById("unmatchedHint");
+        if (hint) hint.innerHTML = `💡 首次使用请先展开底部 <b>📦 重量库管理</b> → 点击"📂 导入文件"导入你的Excel货号重量表。`;
+      }
     });
   });
 
@@ -798,7 +803,7 @@ function setup() {
     document.getElementById("parseResult").classList.add("hidden");
     document.querySelector("#parseTable tbody").innerHTML = "";
     document.getElementById("parseTotal").textContent = "";
-    $("result").innerHTML = `<div class="meta">请${({single:"输入重量",multi:"填写商品清单",paste:"粘贴订单"})[getMode()]}后点击"计算"。</div>`;
+    $("result").innerHTML = `<div class="meta">请${({single:"输入重量",multi:"填写商品清单",paste:"智能计算"})[getMode()]}后点击"计算"。</div>`;
     $("copyBtnWrap").innerHTML = "";
     renderSuggestList(getRegionSuggestions(""));
     weightEl.focus();
