@@ -267,7 +267,7 @@ function formatMoney(n) {
 }
 
 function parseWeight(raw) {
-  const t = String(raw ?? "").trim().replace(/，/g, ".").replace(/[^\d.]/g, "");
+  const t = String(raw ?? "").trim().replace(/，/g, ".").replace(/[^\d.-]/g, "");
   if (!t) return null;
   const n = Number(t);
   if (!Number.isFinite(n)) return null;
@@ -298,8 +298,13 @@ function normalizeRegion(raw) {
     if (t.includes(sc)) return sc;
   }
 
-  // 4) 城市 → 省份映射（从长到短匹配，避免"乌兰察布"被"乌兰"提前匹配）
-  const cityKeys = Object.keys(CITY_TO_PROVINCE).sort((a, b) => b.length - a.length);
+  // 4) 城市 → 省份映射（优先匹配不发快递地区，再按长度从长到短）
+  const cityKeys = Object.keys(CITY_TO_PROVINCE).sort((a, b) => {
+    const pa = CITY_TO_PROVINCE[a], pb = CITY_TO_PROVINCE[b];
+    const aNS = NO_SHIP.has(pa) ? 1 : 0, bNS = NO_SHIP.has(pb) ? 1 : 0;
+    if (aNS !== bNS) return bNS - aNS; // 新疆/西藏优先
+    return b.length - a.length;
+  });
   for (const city of cityKeys) {
     if (t.includes(city)) return CITY_TO_PROVINCE[city];
   }
