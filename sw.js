@@ -1,6 +1,9 @@
 /* 离线缓存（PWA） */
 
-const CACHE_NAME = "shipping-h5-v2.6";
+const CACHE_NAME = "shipping-h5-v2.7";
+// 首次打开就把全部资源存到本地（含 860KB 的 xlsx），之后断网也能完整使用。
+// 清单里必须全是同源文件：一旦混入第三方 CDN 地址，它拉取失败会让 cache.addAll
+// 整体 reject，Service Worker 直接装不上，离线功能全废。
 const PRECACHE_URLS = [
   "./",
   "./index.html",
@@ -8,14 +11,20 @@ const PRECACHE_URLS = [
   "./app.js",
   "./manifest.webmanifest",
   "./assets/icon.svg",
-  "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+  "./vendor/xlsx.full.min.js",
+  "./使用说明.html",
 ];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
-      .then((cache) => cache.addAll(PRECACHE_URLS))
+      // 逐个添加并容忍失败：缺一个资源也不影响 SW 安装
+      .then((cache) =>
+        Promise.all(
+          PRECACHE_URLS.map((u) => cache.add(u).catch(() => null))
+        )
+      )
       .then(() => self.skipWaiting())
   );
 });

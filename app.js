@@ -1,4 +1,4 @@
-/* 运费计算器（离线 H5）v2.6 */
+/* 运费计算器（离线 H5）v2.7 */
 
 // ==============================
 // 常量数据
@@ -6339,6 +6339,29 @@ function getLibCount() {
   return Object.keys(loadWeightLib()).length;
 }
 
+// SheetJS 加载：文件在本地 vendor/ 下，同源、不依赖国外 CDN，也不在 index.html 的解析关键路径上。
+// 首次打开时已由 Service Worker 预缓存，之后断网也能导入 Excel。
+const XLSX_URL = "./vendor/xlsx.full.min.js";
+let xlsxPromise = null;
+
+function ensureXLSX() {
+  if (typeof XLSX !== "undefined") return Promise.resolve(XLSX);
+  if (!xlsxPromise) {
+    xlsxPromise = new Promise((resolve) => {
+      let settled = false;
+      const finish = (v) => { if (settled) return; settled = true; resolve(v); };
+      const s = document.createElement("script");
+      s.src = XLSX_URL;
+      s.onload = () => finish(typeof XLSX !== "undefined" ? XLSX : null);
+      s.onerror = () => { xlsxPromise = null; finish(null); }; // 允许下次重试
+      // 请求卡住不返回时也要给反馈，不能一直没动静
+      setTimeout(() => { xlsxPromise = null; finish(null); }, 15000);
+      document.head.appendChild(s);
+    });
+  }
+  return xlsxPromise;
+}
+
 // ---------- 订单解析 ----------
 
 function parseOrderText(text) {
@@ -6761,20 +6784,26 @@ function setup() {
       alert(`✅ 导入完成！共导入 ${count} 个货号的重量。${sampleModels.length > 0 ? "\n示例：" + sampleModels.join(", ") : ""}`);
     };
 
-    if (isXLSX && typeof XLSX !== "undefined") {
-      // 用 SheetJS 解析 xlsx
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        try {
-          const wb = XLSX.read(ev.target.result, { type: "array" });
-          const ws = wb.Sheets[wb.SheetNames[0]];
-          const csv = XLSX.utils.sheet_to_csv(ws);
-          processData(csv);
-        } catch (err) {
-          alert(`❌ 解析 Excel 失败：${err.message}\n请尝试另存为 CSV 格式后再导入。`);
+    if (isXLSX) {
+      // 用 SheetJS 解析 xlsx（按需加载，首次可能需要联网）
+      ensureXLSX().then((XLSXLIB) => {
+        if (!XLSXLIB) {
+          alert("❌ 解析 Excel 的组件加载失败。\n请把文件另存为 CSV 后再导入，或联网重试一次。");
+          return;
         }
-      };
-      reader.readAsArrayBuffer(file);
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            const wb = XLSXLIB.read(ev.target.result, { type: "array" });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const csv = XLSXLIB.utils.sheet_to_csv(ws);
+            processData(csv);
+          } catch (err) {
+            alert(`❌ 解析 Excel 失败：${err.message}\n请尝试另存为 CSV 格式后再导入。`);
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      });
     } else {
       // CSV：直接读文本，检测编码
       const reader = new FileReader();
