@@ -1,6 +1,6 @@
 /* 离线缓存（PWA） */
 
-const CACHE_NAME = "shipping-h5-v2.7";
+const CACHE_NAME = "shipping-h5-v2.8";
 // 首次打开就把全部资源存到本地（含 860KB 的 xlsx），之后断网也能完整使用。
 // 清单里必须全是同源文件：一旦混入第三方 CDN 地址，它拉取失败会让 cache.addAll
 // 整体 reject，Service Worker 直接装不上，离线功能全废。

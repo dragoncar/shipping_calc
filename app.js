@@ -1,4 +1,4 @@
-/* 运费计算器（离线 H5）v2.7 */
+/* 运费计算器（离线 H5）v2.8 */
 
 // ==============================
 // 常量数据
@@ -6365,12 +6365,12 @@ function ensureXLSX() {
 // ---------- 订单解析 ----------
 
 function parseOrderText(text) {
-  const lines = text.split("\n");
-  const items = []; // { model, qty, rawLine }
+  const lines = text.split("\n").map((l) => l.trim());
+  const items = []; // { model, qty }
   let currentModel = null;
 
-  for (const line of lines) {
-    const trimmed = line.trim();
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i];
     if (!trimmed) continue;
 
     // 找货号: 颜色: xxx货号: XXXX
@@ -6382,12 +6382,24 @@ function parseOrderText(text) {
       if (modelMatch) currentModel = modelMatch[1];
     }
 
-    // 找数量: 元/件 或 元/个 后面的数字（价格在前，数量在后）
+    if (!currentModel) continue;
+
+    // 情况一：价格与数量同一行 —— "7.00 元/件  8  -  待发货"
     const qtyMatch = trimmed.match(/元\/(?:件|个)\s*(\d+)/);
-    if (qtyMatch && currentModel) {
-      const qty = parseInt(qtyMatch[1], 10);
-      items.push({ model: currentModel.toLowerCase(), qty });
+    if (qtyMatch) {
+      items.push({ model: currentModel.toLowerCase(), qty: parseInt(qtyMatch[1], 10) });
       currentModel = null;
+      continue;
+    }
+
+    // 情况二：价格行到"元/个"就结束，数量在下一个非空行 —— "7.50 元/个" ⏎ "20"
+    if (/元\/(?:件|个)\s*$/.test(trimmed)) {
+      const next = lines.slice(i + 1).find((l) => l);
+      const bare = next && next.match(/^(\d+)$/);
+      if (bare) {
+        items.push({ model: currentModel.toLowerCase(), qty: parseInt(bare[1], 10) });
+        currentModel = null;
+      }
     }
   }
 
@@ -6643,7 +6655,9 @@ function setup() {
   function getParseTotal() {
     let total = 0;
     document.querySelectorAll("#parseTable tbody tr").forEach(row => {
-      const w = parseFloat(row.querySelector(".pw-input")?.value);
+      // 未匹配的行用手动填的输入框，已匹配的行重量是纯文本单元格
+      const input = row.querySelector(".pw-input");
+      const w = parseFloat(input ? input.value : (row.querySelector(".pw-val")?.textContent || ""));
       const q = parseInt(row.querySelector(".pq-val")?.textContent, 10);
       if (!isNaN(w) && w > 0 && !isNaN(q) && q > 0) total += w * q;
     });
@@ -6691,7 +6705,7 @@ function setup() {
       if (weight != null) {
         matched++;
         row.innerHTML = `<td>${item.model}</td><td class="pq-val">${item.qty}</td>
-          <td>${weight}</td><td>${(weight * item.qty).toFixed(2)} kg</td>`;
+          <td class="pw-val">${weight}</td><td>${(weight * item.qty).toFixed(2)} kg</td>`;
       } else {
         unmatched++;
         row.innerHTML = `<td>${item.model}</td><td class="pq-val">${item.qty}</td>

@@ -16,7 +16,7 @@
     <main class="container">
       <header class="header">
         <div class="app-title">
-          <h1>运费计算器 v2.7</h1>
+          <h1>运费计算器 v2.8</h1>
           <p class="subtitle">单商品 / 多商品 / 智能计算，自动算运费</p>
         </div>
       </header>
@@ -157,8 +157,8 @@
         <p class="footer-text">离线使用：首次打开后添加到主屏幕，之后可在无网环境使用。</p>
       </footer>
     </main>
-    <!-- SheetJS 不在此处加载：它会阻塞 HTML 解析，导致 app.js 迟迟不执行。
-         改为导入 .xlsx 时按需加载，见 app.js 的 ensureXLSX()。 -->
+    <!-- SheetJS 不在此处加载：同步脚本会阻塞 HTML 解析，网络卡住时 app.js 根本不执行。
+         文件放在 ./vendor/ 下，由 app.js 的 ensureXLSX() 加载，并已加入 sw.js 预缓存。 -->
     <script src="./app.js" defer></script>
   </body>
 </html>
