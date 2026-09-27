@@ -340,11 +340,15 @@ input:focus, select:focus{
 }
 #productTable input.pn{ min-width: 70px; }
 #productTable input.pw{ min-width: 50px; }
-#productTable input.pq{ min-width: 40px; text-align: center; }
+#productTable input.pq{ min-width: 40px; text-align: center; padding-left: 2px; padding-right: 2px; }
+/* 数量框要放得下 3 位数：去掉 number 类型的上下箭头（它很占宽度） */
+#productTable input.pq::-webkit-outer-spin-button,
+#productTable input.pq::-webkit-inner-spin-button{ -webkit-appearance: none; margin: 0; }
+#productTable input.pq{ -moz-appearance: textfield; appearance: textfield; }
 .th-name{ width: auto; }
 .th-w{ width: 80px; }
-.th-q{ width: 55px; }
-.th-s{ width: 65px; text-align: right !important; }
+.th-q{ width: 68px; }
+.th-s{ width: 72px; text-align: right !important; }
 .th-del{ width: 30px; }
 .product-row td.ps, #parseTable td{ text-align: right; font-weight: 600; color: var(--text); font-size: 12px; padding-right: 8px; white-space: nowrap; }
 #parseTable td:first-child{ text-align: left; font-weight: 500; }

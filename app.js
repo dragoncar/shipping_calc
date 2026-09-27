@@ -1,4 +1,4 @@
-/* 运费计算器（离线 H5）v2.8 */
+/* 运费计算器（离线 H5）v2.9 */
 
 // ==============================
 // 常量数据
@@ -4122,7 +4122,6 @@ const CITY_TO_PROVINCE = {
   "埇桥": "安徽",
   "城东": "青海",
   "城中": "广西",
-  "城关": "西藏",
   "城北": "青海",
   "城区": "山西",
   "城厢": "福建",
@@ -6257,29 +6256,34 @@ function normalizeRegion(raw) {
     if (t.includes(sc)) return sc;
   }
 
-  // 不发快递地区（新疆/西藏）优先于省份匹配
-  // 避免"拉萨市城关区北京中路"被"北京"抢走
-  const cityKeys = Object.keys(CITY_TO_PROVINCE).sort((a, b) => b.length - a.length);
-  for (const city of cityKeys) {
-    if (NO_SHIP.has(CITY_TO_PROVINCE[city]) && t.includes(city)) return CITY_TO_PROVINCE[city];
-  }
-  if (t.includes("新疆")) return "新疆";
-  if (t.includes("西藏")) return "西藏";
+  // 地址基本都是"省 市 区/县 街道"的顺序，开头就是省份。
+  // 所以按【出现位置最靠前】判定，位置相同取更长的 key：
+  //   "陕西省商洛市商南县城关街道" → 陕西在 0，城关在 9  → 陕西
+  //   "拉萨市城关区北京中路"       → 拉萨在 0，北京在 6  → 西藏
+  // 越靠前越可信，街道名/路名抢不走省份，也就不需要"新疆西藏优先""街道后缀护栏"这类特例了。
+  let bestRegion = "";
+  let bestPos = Infinity;
+  let bestLen = 0;
+  const consider = (region, key) => {
+    const pos = t.indexOf(key);
+    if (pos < 0 || pos > bestPos) return;
+    if (pos === bestPos && key.length <= bestLen) return;
+    bestRegion = region;
+    bestPos = pos;
+    bestLen = key.length;
+  };
 
-  // 省份优先于一般城市（避免"天津滨海新区"被"滨海县"抢走）
-  const matchOrder = [...REGIONS].sort((a, b) => b.length - a.length);
-  for (const key of matchOrder) {
-    if (t.includes(key)) return key;
-    if (t.includes(key + "省")) return key;
-    if (t.includes(key + "市")) return key;
-    if (t.includes(key + "自治区")) return key;
-    if (t.includes(key + "特别行政区")) return key;
+  for (const r of REGIONS) {
+    consider(r, r);
+    consider(r, r + "省");
+    consider(r, r + "市");
+    consider(r, r + "自治区");
+    consider(r, r + "特别行政区");
   }
-
-  // 一般城市匹配
-  for (const city of cityKeys) {
-    if (t.includes(city)) return CITY_TO_PROVINCE[city];
+  for (const city of Object.keys(CITY_TO_PROVINCE)) {
+    consider(CITY_TO_PROVINCE[city], city);
   }
+  if (bestRegion) return bestRegion;
 
   const t2 = t.replace(/(省|市|自治区|特别行政区)$/g, "");
   if (REGION_ALIASES.has(t2)) return REGION_ALIASES.get(t2);
@@ -6365,45 +6369,60 @@ function ensureXLSX() {
 // ---------- 订单解析 ----------
 
 function parseOrderText(text) {
-  const lines = text.split("\n").map((l) => l.trim());
+  // 粘贴出来的是【塌掉的表格】：单元格边界没了，行与行之间会夹各种东西
+  // （单品订单的"查看详情"、服务标签、商品状态…）。
+  // 所以不能靠"价格行的下一行就是数量"这种位置假设，改成：
+  //   按「货号」把文本切成块，每块 = 一件商品，再在块内找数量。
+  // 这样中间夹多少行都不影响，也不用去区分单品/多品订单。
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
   const items = []; // { model, qty }
-  let currentModel = null;
 
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i];
-    if (!trimmed) continue;
+  let model = null;
+  let block = [];
 
-    // 找货号: 颜色: xxx货号: XXXX
-    const m = trimmed.match(/货号:\s*(\S+)/);
-    if (m) {
-      currentModel = m[1].replace(/[色\s]/g, ""); // 去掉颜色后缀
-      // 提取字母数字部分作为型号
-      const modelMatch = currentModel.match(/^([A-Za-z0-9]+[-]?[A-Za-z0-9]*)/);
-      if (modelMatch) currentModel = modelMatch[1];
+  const flush = () => {
+    if (model) {
+      const qty = pickQty(block);
+      if (qty != null) items.push({ model, qty });
     }
+    model = null;
+    block = [];
+  };
 
-    if (!currentModel) continue;
-
-    // 情况一：价格与数量同一行 —— "7.00 元/件  8  -  待发货"
-    const qtyMatch = trimmed.match(/元\/(?:件|个)\s*(\d+)/);
-    if (qtyMatch) {
-      items.push({ model: currentModel.toLowerCase(), qty: parseInt(qtyMatch[1], 10) });
-      currentModel = null;
+  for (const line of lines) {
+    const m = line.match(/货号:\s*(\S+)/);
+    if (m) {
+      flush(); // 上一件商品到此为止
+      // "0594蓝色" → 去掉颜色 → "0594蓝" → 取开头的字母数字 → "0594"
+      const raw = m[1].replace(/[色\s]/g, "");
+      const mm = raw.match(/^([A-Za-z0-9]+[-]?[A-Za-z0-9]*)/);
+      model = (mm ? mm[1] : raw).toLowerCase();
       continue;
     }
-
-    // 情况二：价格行到"元/个"就结束，数量在下一个非空行 —— "7.50 元/个" ⏎ "20"
-    if (/元\/(?:件|个)\s*$/.test(trimmed)) {
-      const next = lines.slice(i + 1).find((l) => l);
-      const bare = next && next.match(/^(\d+)$/);
-      if (bare) {
-        items.push({ model: currentModel.toLowerCase(), qty: parseInt(bare[1], 10) });
-        currentModel = null;
-      }
-    }
+    if (model) block.push(line);
   }
+  flush();
 
   return items;
+}
+
+// 在一件商品的文本块里找数量
+function pickQty(block) {
+  // 情况一：价格和数量在同一行 —— "5.00 元/件  3  -  已确认收货"
+  // 限 4 位：订单号（19 位）、支付宝交易号（28 位）永远不可能被当成数量
+  for (const line of block) {
+    const m = line.match(/元\/(?:件|个)\s*(\d+)/);
+    if (m && m[1].length <= 4) return parseInt(m[1], 10);
+  }
+
+  // 情况二：数量在价格行之后，中间可能夹任意行（"查看详情"等）
+  const idx = block.findIndex((l) => /元\/(?:件|个)/.test(l));
+  if (idx < 0) return null;
+  for (let k = idx + 1; k < block.length; k++) {
+    const m = block[k].match(/^(\d{1,4})$/);
+    if (m) return parseInt(m[1], 10);
+  }
+  return null;
 }
 
 // ---------- 运费计算 ----------
