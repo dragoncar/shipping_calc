@@ -1,4 +1,4 @@
-/* 运费计算器（离线 H5）v2.9 */
+/* 运费计算器（离线 H5）v2.10 */
 
 // ==============================
 // 常量数据
@@ -6762,60 +6762,152 @@ function setup() {
   }
 
   // ---------- 重量库导入 ----------
+  // 只认表头两列：「产品型号」和「重量」。列号一旦定下来，表格有多少列、
+  // 中间夹了多少无关列、合并单元格怎么规划、每个产品占几行，全都不用管。
   document.getElementById("importLibBtn").addEventListener("click", () => {
     document.getElementById("libFileInput").click();
   });
+
+  // 表头不一定在第一行（上面常有标题行、价格档位行），多往下扫几行
+  const HEADER_SCAN_ROWS = 20;
+
+  // 「产品型号」优先于「型号」，再退到「货号」「款号」
+  function modelHeaderScore(t) {
+    if (t.includes("产品型号")) return 4;
+    if (t.includes("型号")) return 3;
+    if (t.includes("货号")) return 2;
+    if (t.includes("款号")) return 1;
+    return 0;
+  }
+
+  // 返回 { row, modelIdx, weightIdx }；两列不在同一行就认为没表头
+  function findHeaderRow(rows) {
+    const limit = Math.min(rows.length, HEADER_SCAN_ROWS);
+    for (let r = 0; r < limit; r++) {
+      const row = rows[r] || [];
+      let modelIdx = -1, modelScore = 0, weightIdx = -1;
+      for (let i = 0; i < row.length; i++) {
+        const t = String(row[i] == null ? "" : row[i]).trim();
+        if (!t) continue;
+        if (weightIdx < 0 && /重量|克重|毛重|净重/.test(t)) weightIdx = i;
+        const s = modelHeaderScore(t);
+        if (s > modelScore) { modelScore = s; modelIdx = i; }
+      }
+      if (modelIdx >= 0 && weightIdx >= 0) return { row: r, modelIdx, weightIdx };
+    }
+    return null;
+  }
+
+  // 「标准：0.3」「加大：0.35」「5.8-6」都取第一个数字
+  function parseWeight(s) {
+    const m = String(s == null ? "" : s).match(/\d+(?:\.\d+)?/);
+    return m ? parseFloat(m[0]) : NaN;
+  }
+
+  // RFC4180 解析：引号里的分隔符和换行都不算数。
+  // ① Excel 的图片公式 =DISPIMG("ID_xxx",1) 自带逗号，裸切会让整行错位一格；
+  // ② 一个格子里用换行挤了多个货号的，导出 CSV 后是引号内的真换行，按行裸切会把它切碎。
+  function parseCSVRows(text, sep) {
+    const rows = [];
+    let row = [], cur = "", inQuote = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (inQuote) {
+        if (ch === '"') {
+          if (text[i + 1] === '"') { cur += '"'; i++; } else inQuote = false;
+        } else {
+          cur += ch;
+        }
+      } else if (ch === '"') {
+        inQuote = true;
+      } else if (ch === sep) {
+        row.push(cur); cur = "";
+      } else if (ch === "\n") {
+        row.push(cur); rows.push(row); row = []; cur = "";
+      } else if (ch !== "\r") {
+        cur += ch;
+      }
+    }
+    if (cur !== "" || row.length) { row.push(cur); rows.push(row); }
+    return rows;
+  }
+
+  // 分隔符看表头行：逗号 / 制表符 / 分号取最多的那个（跳过引号内的）
+  function detectSep(line) {
+    const cand = [[",", 0], ["\t", 0], [";", 0]];
+    let inQuote = false;
+    for (const ch of line) {
+      if (ch === '"') { inQuote = !inQuote; continue; }
+      if (inQuote) continue;
+      for (const c of cand) if (ch === c[0]) c[1]++;
+    }
+    cand.sort((a, b) => b[1] - a[1]);
+    return cand[0][1] > 0 ? cand[0][0] : ",";
+  }
+
+  function importRows(rows) {
+    const hdr = findHeaderRow(rows);
+    const modelIdx = hdr ? hdr.modelIdx : 0;   // 没表头就退回「前两列」的老约定
+    const weightIdx = hdr ? hdr.weightIdx : 1;
+    const start = hdr ? hdr.row + 1 : 0;
+
+    const lib = loadWeightLib();
+    const existed = new Set(Object.keys(lib));
+    const touchedNew = new Set(), touchedOld = new Set();
+    const sampleModels = [];
+    const noWeight = [];
+    let curModels = [], curWeight = NaN;
+
+    for (let r = start; r < rows.length; r++) {
+      const row = rows[r] || [];
+      const rawModel = String(row[modelIdx] == null ? "" : row[modelIdx]).trim();
+      const rawWeight = String(row[weightIdx] == null ? "" : row[weightIdx]).trim();
+
+      if (!hdr && r === 0 && /型号|货号|款号|重量|克重/.test(rawModel + rawWeight)) continue; // 兜底模式下的标题行
+
+      if (rawModel) {
+        // 产品组首行。型号格可能用换行挤了多个货号，重量以本行为准
+        curModels = rawModel.split(/[\r\n]+/).map(s => s.trim()).filter(Boolean);
+        curWeight = rawWeight ? parseWeight(rawWeight) : NaN;
+      } else if (rawWeight) {
+        // 同组后续行：合并单元格把型号留空了，重量可能还在，补上
+        const w = parseWeight(rawWeight);
+        if (!isNaN(w)) curWeight = w;
+      }
+
+      if (!curModels.length) continue;
+      if (isNaN(curWeight) || curWeight <= 0) {
+        if (rawModel) noWeight.push(rawModel.replace(/[\r\n]+/g, "/")); // 只在组首行记一次
+        continue;
+      }
+      for (const model of curModels) {
+        const key = model.toLowerCase();
+        // 同一个货号在合并组里会重复出现多次，只按「不同货号」计数
+        if (existed.has(key)) touchedOld.add(key); else touchedNew.add(key);
+        lib[key] = curWeight;
+        if (sampleModels.length < 5 && !sampleModels.some(s => s.startsWith(model + "="))) {
+          sampleModels.push(`${model}=${curWeight}kg`);
+        }
+      }
+    }
+
+    saveWeightLib(lib);
+    updateLibStatus();
+
+    let msg = `✅ 导入完成！新增 ${touchedNew.size} 个货号，更新 ${touchedOld.size} 个。\n当前库共 ${getLibCount()} 个货号。`;
+    if (sampleModels.length) msg += `\n示例：${sampleModels.join("，")}`;
+    if (noWeight.length) {
+      msg += `\n\n⚠️ 有 ${noWeight.length} 个货号在表里没填重量，已跳过：\n`
+        + noWeight.slice(0, 15).join("，") + (noWeight.length > 15 ? " …" : "");
+    }
+    if (!hdr) msg += `\n\n（没找到「产品型号 / 重量」表头，已按前两列处理）`;
+    alert(msg);
+  }
 
   document.getElementById("libFileInput").addEventListener("change", (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const isXLSX = file.name.match(/\.xlsx?$/i);
-
-    const processData = (text) => {
-      const lines = text.split("\n").filter(l => l.trim());
-      const lib = loadWeightLib();
-      let count = 0;
-      let sampleModels = [];
-
-      const firstLine = lines[0];
-      const commaCount = (firstLine.match(/,/g) || []).length;
-      const semicolonCount = (firstLine.match(/;/g) || []).length;
-      const sep = semicolonCount > commaCount ? /[;]/ : /[,\t]/;
-
-      const headerLine = lines[0];
-      const hasHeader = headerLine.includes("型号") || headerLine.includes("货号") || headerLine.includes("重量");
-      const dataLines = hasHeader ? lines.slice(1) : lines;
-
-      for (const line of dataLines) {
-        const parts = line.split(sep).map(s => s.trim().replace(/^"|"$/g, ""));
-        if (parts.length < 2) continue;
-        let modelIdx = -1, weightIdx = -1;
-        if (hasHeader) {
-          const cols = headerLine.split(sep).map(s => s.trim().replace(/^"|"$/g, ""));
-          cols.forEach((c, i) => {
-            if (c.includes("型号") || c.includes("货号") || c.includes("产品")) modelIdx = i;
-            if (c.includes("重量")) weightIdx = i;
-          });
-        }
-        if (modelIdx < 0) modelIdx = 0;
-        if (weightIdx < 0) weightIdx = parts.length - 1;
-
-        const maxIdx = Math.max(modelIdx, weightIdx);
-        if (parts.length <= maxIdx) continue; // 跳过列数不够的行
-        const model = parts[modelIdx];
-        if (!model) continue; // 跳过空型号
-        const weight = parseFloat((parts[weightIdx] || "").replace(/[^\d.]/g, ""));
-        if (model && !isNaN(weight) && weight > 0) {
-          lib[model.toLowerCase()] = weight;
-          if (count < 5) sampleModels.push(model);
-          count++;
-        }
-      }
-
-      saveWeightLib(lib);
-      updateLibStatus();
-      alert(`✅ 导入完成！共导入 ${count} 个货号的重量。${sampleModels.length > 0 ? "\n示例：" + sampleModels.join(", ") : ""}`);
-    };
 
     if (isXLSX) {
       // 用 SheetJS 解析 xlsx（按需加载，首次可能需要联网）
@@ -6829,8 +6921,10 @@ function setup() {
           try {
             const wb = XLSXLIB.read(ev.target.result, { type: "array" });
             const ws = wb.Sheets[wb.SheetNames[0]];
-            const csv = XLSXLIB.utils.sheet_to_csv(ws);
-            processData(csv);
+            // 直接取二维数组按列号定位，不再走 sheet_to_csv ——
+            // 序列化成文本再按逗号切，正是之前只进去 8 个货号的原因
+            const rows = XLSXLIB.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: true, raw: false });
+            importRows(rows);
           } catch (err) {
             alert(`❌ 解析 Excel 失败：${err.message}\n请尝试另存为 CSV 格式后再导入。`);
           }
@@ -6838,9 +6932,13 @@ function setup() {
         reader.readAsArrayBuffer(file);
       });
     } else {
-      // CSV：直接读文本，检测编码
+      // CSV：直接读文本
       const reader = new FileReader();
-      reader.onload = (ev) => processData(ev.target.result);
+      reader.onload = (ev) => {
+        const text = String(ev.target.result).replace(/^﻿/, "");
+        const sep = detectSep(text.split("\n").find(l => l.trim()) || "");
+        importRows(parseCSVRows(text, sep));
+      };
       reader.readAsText(file);
     }
 
