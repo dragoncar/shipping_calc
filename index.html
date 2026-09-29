@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0b5fff" />
+    <meta name="theme-color" content="#0071e3" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>运费计算器</title>
@@ -14,119 +14,121 @@
   </head>
   <body>
     <main class="container">
-      <header class="header">
-        <div class="app-title">
-          <h1>运费计算器 v2.9.1</h1>
-          <p class="subtitle">单商品 / 多商品 / 智能计算，自动算运费</p>
-        </div>
+      <header class="page-head">
+        <h1>运费计算器</h1>
+        <span class="ver">v3.0</span>
       </header>
 
-      <section class="card">
-        <!-- 模式切换 -->
-        <div class="tab-bar">
-          <button class="tab-btn active" data-tab="single" type="button">单商品</button>
-          <button class="tab-btn" data-tab="multi" type="button">多商品</button>
-          <button class="tab-btn" data-tab="paste" type="button">智能计算</button>
-        </div>
-
-        <!-- 单商品模式 -->
-        <div id="singleMode">
-          <div class="field">
-            <label for="weight">重量（kg）</label>
-            <input id="weight" inputmode="decimal" placeholder="例如：12 或 12.6" autocomplete="off" />
-            <div class="hint">按"计费重量"输入；如需要向上取整，请开启下方开关。</div>
-            <div id="weightShortcuts" class="shortcuts-row"></div>
+      <!-- 宽屏两栏：左边输入，右边结果；窄屏自动塌成一栏，结果接在按钮下面 -->
+      <div class="layout">
+        <section class="card">
+          <!-- 模式切换 -->
+          <div class="tab-bar">
+            <button class="tab-btn active" data-tab="paste" type="button">智能计算</button>
+            <button class="tab-btn" data-tab="single" type="button">单商品</button>
+            <button class="tab-btn" data-tab="multi" type="button">多商品</button>
           </div>
-        </div>
 
-        <!-- 多商品模式 -->
-        <div id="multiMode" class="hidden">
-          <div class="field">
-            <label>商品清单</label>
-            <div class="table-wrap">
-              <table id="productTable">
-                <thead>
-                  <tr>
-                    <th class="th-name">商品名</th>
-                    <th class="th-w">重量(kg)</th>
-                    <th class="th-q">数量</th>
-                    <th class="th-s">小计</th>
-                    <th class="th-del"></th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
-            <button id="addRowBtn" class="btn-add-row" type="button">+ 添加一行</button>
-            <div id="productTotal" class="product-total">合计重量：0 kg</div>
-          </div>
-        </div>
-
-        <!-- 智能计算模式 -->
-        <div id="pasteMode" class="hidden">
-          <div class="field">
-            <label for="orderText">粘贴订单内容</label>
-            <textarea id="orderText" class="order-textarea" placeholder="从订单页面复制内容后粘贴到这里（Ctrl+V）&#10;&#10;例如：&#10;颜色: 黑色货号: A130黑色&#10;7.00 元/件  8  -  待发货" rows="8"></textarea>
-          </div>
-          <button id="parseOrderBtn" class="btn-secondary btn-full" type="button">🔍 解析订单</button>
-
-          <!-- 解析结果 -->
-          <div id="parseResult" class="hidden">
+          <!-- 单商品模式 -->
+          <div id="singleMode" class="hidden">
             <div class="field">
-              <label>解析结果 <span id="parseStatus" class="parse-status"></span></label>
+              <label for="weight">重量（kg）</label>
+              <input id="weight" inputmode="decimal" placeholder="例如：12 或 12.6" autocomplete="off" />
+              <div class="hint">按"计费重量"输入；如需要向上取整，请开启下方开关。</div>
+              <div id="weightShortcuts" class="shortcuts-row"></div>
+            </div>
+          </div>
+
+          <!-- 多商品模式 -->
+          <div id="multiMode" class="hidden">
+            <div class="field">
+              <label>商品清单</label>
               <div class="table-wrap">
-                <table id="parseTable">
+                <table id="productTable">
                   <thead>
                     <tr>
-                      <th>货号</th>
-                      <th>数量</th>
-                      <th>重量(kg)</th>
-                      <th>小计</th>
+                      <th class="th-name">商品名</th>
+                      <th class="th-w">重量(kg)</th>
+                      <th class="th-q">数量</th>
+                      <th class="th-s">小计</th>
+                      <th class="th-del"></th>
                     </tr>
                   </thead>
                   <tbody></tbody>
                 </table>
               </div>
-              <div id="parseTotal" class="product-total"></div>
-              <div id="unmatchedHint" class="hint"></div>
+              <button id="addRowBtn" class="btn-add-row" type="button">+ 添加一行</button>
+              <div id="productTotal" class="product-total">合计重量：0 kg</div>
             </div>
           </div>
-        </div>
 
-        <!-- 公共区域 -->
-        <div class="field">
-          <label for="regionInput">收货地址 / 省份（可输入/可下拉）</label>
-          <div class="combo">
-            <input id="regionInput" placeholder="例如：广东 / 内蒙古 / 阜阳 / 舟山"
-              autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
-            <div id="regionSuggest" class="suggestions" role="listbox" aria-label="地域建议"></div>
+          <!-- 智能计算模式 -->
+          <div id="pasteMode">
+            <div class="field">
+              <label for="orderText">粘贴订单内容</label>
+              <textarea id="orderText" class="order-textarea" placeholder="从订单页面复制内容后粘贴到这里（Ctrl+V）&#10;&#10;例如：&#10;颜色: 蓝色货号: A1001蓝色&#10;7.00 元/件  8  -  待发货" rows="8"></textarea>
+            </div>
+            <button id="parseOrderBtn" class="btn-secondary btn-full" type="button">🔍 解析订单</button>
+
+            <!-- 解析结果 -->
+            <div id="parseResult" class="hidden">
+              <div class="field">
+                <label>解析结果 <span id="parseStatus" class="parse-status"></span></label>
+                <div class="table-wrap">
+                  <table id="parseTable">
+                    <thead>
+                      <tr>
+                        <th>货号</th>
+                        <th>数量</th>
+                        <th>重量(kg)</th>
+                        <th>小计</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+                <div id="parseTotal" class="product-total"></div>
+                <div id="unmatchedHint" class="hint"></div>
+              </div>
+            </div>
           </div>
-          <div class="hint">支持输入完整地址或城市名，自动识别省份。</div>
-        </div>
 
-        <div class="field field-inline">
-          <div class="switch">
-            <input id="ceilWeight" type="checkbox" checked />
-            <label for="ceilWeight">重量向上取整（常见快递计费）</label>
+          <!-- 公共区域 -->
+          <div class="field">
+            <label for="regionInput">收货地址 / 省份（可输入/可下拉）</label>
+            <div class="combo">
+              <input id="regionInput" placeholder="例如：广东 / 内蒙古 / 阜阳 / 舟山"
+                autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+              <div id="regionSuggest" class="suggestions" role="listbox" aria-label="地域建议"></div>
+            </div>
+            <div class="hint">支持输入完整地址或城市名，自动识别省份。</div>
           </div>
-        </div>
 
-        <div class="action-row">
-          <button id="calcBtn" class="primary" type="button">计算</button>
-          <button id="resetBtn" class="btn-secondary" type="button">↺ 重置</button>
-        </div>
+          <div class="field field-inline">
+            <div class="switch">
+              <input id="ceilWeight" type="checkbox" checked />
+              <label for="ceilWeight">重量向上取整（常见快递计费）</label>
+            </div>
+          </div>
 
-        <div id="result" class="result" aria-live="polite"></div>
-        <div id="copyBtnWrap" class="copy-wrap"></div>
-      </section>
+          <div class="action-row">
+            <button id="calcBtn" class="primary" type="button">计算</button>
+            <button id="resetBtn" class="btn-secondary" type="button">↺ 重置</button>
+          </div>
+        </section>
 
-      <!-- 重量库管理 -->
-      <section class="card card-muted">
-        <details>
-          <summary>📦 重量库管理</summary>
-          <div class="rules">
-            <p>导入 Excel/CSV 建立货号→重量对照表，订单粘贴时自动匹配。</p>
-            <p>Excel 须包含 <strong>产品型号</strong> 和 <strong>重量（kg）</strong> 列。</p>
+        <aside class="side">
+          <!-- 结果 -->
+          <section class="card card-result">
+            <div id="result" class="result" aria-live="polite"></div>
+            <div id="copyBtnWrap" class="copy-wrap"></div>
+          </section>
+
+          <!-- 重量库管理 -->
+          <section class="card" id="libPanel">
+            <h2 class="card-title">重量库</h2>
+            <p class="card-sub">导入 Excel/CSV 建立货号→重量对照表，订单粘贴时自动匹配。<strong>也可以把文件直接拖到页面上。</strong></p>
+            <p class="card-sub">Excel 须包含 <strong>产品型号</strong> 和 <strong>重量（kg）</strong> 列。</p>
             <div class="lib-actions">
               <input id="libFileInput" type="file" accept=".csv,.xlsx" class="hidden" />
               <button id="importLibBtn" class="btn-secondary" type="button">📂 导入文件</button>
@@ -135,28 +137,51 @@
             </div>
             <div id="libStatus" class="lib-status">当前库：<span id="libCount">0</span> 个货号</div>
             <div id="libEntries" class="lib-entries hidden"></div>
-          </div>
-        </details>
-      </section>
+          </section>
 
-      <section class="card card-muted">
-        <details>
-          <summary>查看规则说明</summary>
-          <div class="rules">
-            <p>优先级：特殊地区价（如命中）→ 常规地址。新疆/西藏不发快递。</p>
-            <ul>
-              <li>特殊地区价（&gt;12kg）：海南=重量×4+10；甘肃/青海=重量×2.5+10；云南/宁夏=重量×2+10；四川/福建/吉林/舟山/延安/广西/贵州=重量×1.8+10。</li>
-              <li>常规地址（≤12kg）：甘肃/宁夏/云南/广西/青海/贵州/海南/内蒙=重量×5.5，其它=重量×3。</li>
-              <li>常规地址（&gt;12kg）：13–15kg按15kg：15×1.5+10；16–20kg按20kg：20×1.5+10；21–89kg=重量×1.5+10；≥90kg=重量×1.5。</li>
-            </ul>
-          </div>
-        </details>
-      </section>
+          <!-- 规则说明：内容由 app.js 从「运费规则」生成，不写死 -->
+          <section class="card">
+            <div class="card-head">
+              <h2 class="card-title">规则说明</h2>
+              <button id="editRulesBtn" class="link-btn" type="button">编辑</button>
+            </div>
+            <div id="rulesSummary" class="rules-summary"></div>
+          </section>
+        </aside>
+      </div>
 
       <footer class="footer">
         <p class="footer-text">离线使用：首次打开后添加到主屏幕，之后可在无网环境使用。</p>
       </footer>
     </main>
+    <!-- 拖文件进来时的全屏提示 -->
+    <div id="dropOverlay" class="drop-overlay hidden" aria-hidden="true">
+      <div class="drop-box">📂 松手导入重量库</div>
+    </div>
+
+    <!-- 运费规则编辑器：内容全部由 app.js 渲染 -->
+    <div id="rulesModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="rulesModalTitle">
+      <div class="modal-mask" id="rulesMask"></div>
+      <div class="modal-panel">
+        <div class="modal-head">
+          <h2 id="rulesModalTitle">运费规则</h2>
+          <button id="rulesCloseBtn" class="modal-x" type="button" aria-label="关闭">✕</button>
+        </div>
+        <div id="rulesBody" class="modal-body"></div>
+        <div class="modal-foot">
+          <div class="modal-foot-left">
+            <button id="rulesResetBtn" class="btn-secondary" type="button">恢复默认</button>
+            <button id="rulesExportBtn" class="btn-secondary" type="button">导出</button>
+            <button id="rulesImportBtn" class="btn-secondary" type="button">导入</button>
+            <input id="rulesFileInput" type="file" accept=".json,application/json" class="hidden" />
+          </div>
+          <div class="modal-foot-right">
+            <button id="rulesCancelBtn" class="btn-secondary" type="button">取消</button>
+            <button id="rulesSaveBtn" class="primary" type="button">保存</button>
+          </div>
+        </div>
+      </div>
+    </div>
     <!-- SheetJS 不在此处加载：同步脚本会阻塞 HTML 解析，网络卡住时 app.js 根本不执行。
          文件放在 ./vendor/ 下，由 app.js 的 ensureXLSX() 加载，并已加入 sw.js 预缓存。 -->
     <script src="./app.js" defer></script>

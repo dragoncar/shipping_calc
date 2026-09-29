@@ -1,4 +1,4 @@
-/* 运费计算器（离线 H5）v2.9.1 */
+/* 运费计算器（离线 H5）v3.0 */
 
 // ==============================
 // 常量数据
@@ -15,19 +15,8 @@ const REGIONS = [
   "香港", "澳门", "台湾",
 ];
 
-const NO_SHIP = new Set(["新疆", "西藏"]);
-
-const SPECIAL_RATE = new Map([
-  ["海南", 4], ["甘肃", 2.5], ["青海", 2.5],
-  ["云南", 2], ["宁夏", 2],
-  ["四川", 1.8], ["福建", 1.8], ["吉林", 1.8],
-  ["舟山", 1.8], ["延安", 1.8],
-  ["广西", 1.8], ["贵州", 1.8],
-]);
-
-const COMMON_UPTO12_HIGH = new Set([
-  "甘肃", "宁夏", "云南", "广西", "青海", "贵州", "海南", "内蒙古",
-]);
+// 费率不再写死在这里 —— 全部搬进「运费规则」（见 DEFAULT_RULES），
+// 用户可以在界面上改、存本地。这份 REGIONS 只是「有哪些地区」的字典。
 
 const REGION_ALIASES = new Map([
   ["内蒙", "内蒙古"], ["内蒙古自治区", "内蒙古"],
@@ -6212,7 +6201,6 @@ const CITY_TO_PROVINCE = {
   "赣江": "江西",
   "金普": "辽宁",
 };
-const SPECIAL_CITIES = new Set(["舟山", "延安"]);
 
 const DEFAULT_WEIGHT_SHORTCUTS = [1, 3, 5, 10, 20];
 const STORAGE_KEY_SHORTCUTS = "shipping_weight_shortcuts";
@@ -6243,37 +6231,106 @@ function $(id) {
 
 // ---------- 地址识别 ----------
 
-function normalizeRegion(raw) {
-  if (!raw) return "";
-  let t = String(raw).trim().replace(/\s+/g, "");
-  if (!t) return "";
+// 同名区县：同一个名字在多个省份都有（朝阳区在北京也在长春，南山区在深圳也在鹤岗）。
+// CITY_TO_PROVINCE 是一张平表，同名时只能留下一个，留下哪个纯看出身 —— 等于随机。
+// 所以这些名字一律不猜，交给用户选；地址里带了省或市就照常判。
+// 清单来自民政部行政区划（3020 个区县 + 337 个市，只有这 26 个重名），别手改。
+const AMBIGUOUS_REGIONS = new Map([
+  ["白云区", ["广东", "贵州"]],
+  ["宝山区", ["黑龙江", "上海"]],
+  ["朝阳区", ["北京", "吉林"]],
+  ["城关区", ["西藏", "甘肃"]],
+  ["城区", ["山西", "广东"]],
+  ["城中区", ["广西", "青海"]],
+  ["鼓楼区", ["江苏", "福建", "河南"]],
+  ["海州区", ["辽宁", "江苏"]],
+  ["和平区", ["天津", "辽宁"]],
+  ["河东区", ["天津", "山东"]],
+  ["江北区", ["浙江", "重庆"]],
+  ["郊区", ["山西", "黑龙江", "安徽"]],
+  ["龙华区", ["广东", "海南"]],
+  ["南山区", ["黑龙江", "广东"]],
+  ["普陀区", ["上海", "浙江"]],
+  ["青山区", ["内蒙古", "湖北"]],
+  ["市中区", ["山东", "四川"]],
+  ["铁东区", ["辽宁", "吉林"]],
+  ["铁西区", ["辽宁", "吉林"]],
+  ["通州区", ["北京", "江苏"]],
+  ["西安区", ["吉林", "黑龙江"]],
+  ["西湖区", ["浙江", "江西"]],
+  ["新城区", ["内蒙古", "陕西"]],
+  ["新华区", ["河北", "河南"]],
+  ["永定区", ["福建", "湖南"]],
+  ["长安区", ["河北", "陕西"]],
+  // 手工加的一条：民政部数据不含港澳，但「九龙」单独写时确实两可
+  ["九龙", ["香港", "四川"]],
+]);
 
-  if (REGION_ALIASES.has(t)) return REGION_ALIASES.get(t);
-  if (REGIONS.includes(t)) return t;
+// 港澳台的城市。不发快递，但要认得出来 —— 认得出来才能说「台湾不发快递」，
+// 而不是含糊的「未识别到省份」。
+// 注意不能收「新北」（撞江苏常州新北区）和「九龙」（撞四川九龙县，见上面同名表）。
+const HKMO_TW = {
+  "台北": "台湾", "台北市": "台湾", "新北市": "台湾",
+  "桃园": "台湾", "桃园市": "台湾", "台中": "台湾", "台中市": "台湾",
+  "台南": "台湾", "台南市": "台湾", "高雄": "台湾", "高雄市": "台湾",
+  "基隆": "台湾", "基隆市": "台湾", "新竹": "台湾", "新竹市": "台湾",
+  "嘉义": "台湾", "嘉义市": "台湾", "宜兰": "台湾", "花莲": "台湾",
+  "台东": "台湾", "屏东": "台湾", "云林": "台湾", "南投": "台湾",
+  "彰化": "台湾", "苗栗": "台湾", "澎湖": "台湾",
+  "新界": "香港", "香港岛": "香港",
+  "氹仔": "澳门", "路环": "澳门",
+};
 
-  // 特殊城市优先（舟山/延安有独立费率）
-  for (const sc of SPECIAL_CITIES) {
-    if (t.includes(sc)) return sc;
+// 自治州的常用简称。地址里基本不会写全「甘南藏族自治州」，都写「甘南州」。
+// 不补的话会判错：甘南州 撞黑龙江的甘南县、怒江州 撞广西的怒江、海南州 撞海南省。
+const PREFECTURE_SHORT = {
+  "延边州": "吉林", "恩施州": "湖北", "湘西州": "湖南",
+  "阿坝州": "四川", "甘孜州": "四川", "凉山州": "四川",
+  "黔西南州": "贵州", "黔东南州": "贵州", "黔南州": "贵州",
+  "楚雄州": "云南", "红河州": "云南", "文山州": "云南", "西双版纳州": "云南",
+  "大理州": "云南", "德宏州": "云南", "怒江州": "云南", "迪庆州": "云南",
+  "临夏州": "甘肃", "甘南州": "甘肃",
+  "海北州": "青海", "黄南州": "青海", "海南州": "青海", "果洛州": "青海",
+  "玉树州": "青海", "海西州": "青海",
+  "昌吉州": "新疆", "博尔塔拉州": "新疆", "巴音郭楞州": "新疆",
+  "克孜勒苏州": "新疆", "伊犁州": "新疆",
+};
+
+// 核心判定：返回 { region, key }。key 是命中的那个写法，用来查上面这张同名表。
+function regionMatch(raw) {
+  if (!raw) return { region: "", key: "" };
+  const t = String(raw).trim().replace(/\s+/g, "");
+  if (!t) return { region: "", key: "" };
+
+  if (REGION_ALIASES.has(t)) return { region: REGION_ALIASES.get(t), key: "" };
+  const R = getRules();
+  if (R.regions.includes(t)) return { region: t, key: "" };
+
+  // 特殊城市优先（舟山/延安这类不跟着省走，有独立费率）
+  for (const sc of R.specialCities) {
+    if (t.includes(sc)) return { region: sc, key: "" };
   }
 
   // 地址基本都是"省 市 区/县 街道"的顺序，开头就是省份。
   // 所以按【出现位置最靠前】判定，位置相同取更长的 key：
-  //   "陕西省商洛市商南县城关街道" → 陕西在 0，城关在 9  → 陕西
+  //   "河南省南阳市方城县城关街道" → 河南在 0，城关在 9  → 河南
   //   "拉萨市城关区北京中路"       → 拉萨在 0，北京在 6  → 西藏
   // 越靠前越可信，街道名/路名抢不走省份，也就不需要"新疆西藏优先""街道后缀护栏"这类特例了。
-  let bestRegion = "";
+  let region = "";
+  let key = "";
   let bestPos = Infinity;
   let bestLen = 0;
-  const consider = (region, key) => {
-    const pos = t.indexOf(key);
+  const consider = (r, k) => {
+    const pos = t.indexOf(k);
     if (pos < 0 || pos > bestPos) return;
-    if (pos === bestPos && key.length <= bestLen) return;
-    bestRegion = region;
+    if (pos === bestPos && k.length <= bestLen) return;
+    region = r;
+    key = k;
     bestPos = pos;
-    bestLen = key.length;
+    bestLen = k.length;
   };
 
-  for (const r of REGIONS) {
+  for (const r of R.regions) {
     consider(r, r);
     consider(r, r + "省");
     consider(r, r + "市");
@@ -6283,25 +6340,43 @@ function normalizeRegion(raw) {
   for (const city of Object.keys(CITY_TO_PROVINCE)) {
     consider(CITY_TO_PROVINCE[city], city);
   }
-  if (bestRegion) return bestRegion;
+  for (const table of [PREFECTURE_SHORT, HKMO_TW]) {
+    for (const name of Object.keys(table)) consider(table[name], name);
+  }
+  if (region) return { region, key };
 
   const t2 = t.replace(/(省|市|自治区|特别行政区)$/g, "");
-  if (REGION_ALIASES.has(t2)) return REGION_ALIASES.get(t2);
-  if (REGIONS.includes(t2)) return t2;
-  if (CITY_TO_PROVINCE[t2]) return CITY_TO_PROVINCE[t2];
+  if (REGION_ALIASES.has(t2)) return { region: REGION_ALIASES.get(t2), key: "" };
+  if (R.regions.includes(t2)) return { region: t2, key: "" };
+  if (CITY_TO_PROVINCE[t2]) return { region: CITY_TO_PROVINCE[t2], key: t2 };
 
-  return t2 || t;
+  return { region: t2 || t, key: "" };
+}
+
+function normalizeRegion(raw) {
+  const m = regionMatch(raw);
+  if (m.key && AMBIGUOUS_REGIONS.has(m.key)) return ""; // 同名区县，不猜
+  return m.region;
+}
+
+// 只在「这个名字本身有歧义」时返回候选省，其余情况返回空数组
+function regionCandidates(raw) {
+  const m = regionMatch(raw);
+  return (m.key && AMBIGUOUS_REGIONS.get(m.key)) || [];
 }
 
 function getRegionSuggestions(raw, limit) {
   const q0 = String(raw ?? "").trim().replace(/\s+/g, "");
-  if (!q0) return typeof limit === "number" ? REGIONS.slice(0, limit) : [...REGIONS];
+  const R = getRules();
+  if (!q0) return typeof limit === "number" ? R.regions.slice(0, limit) : [...R.regions];
   const q = q0.replace(/(省|市|自治区|特别行政区)$/g, "");
   const out = [];
   const push = (x) => { if (!out.includes(x)) out.push(x); };
+  // 同名区县：候选省直接摆最前面，点一下就选中
+  for (const r of regionCandidates(q0)) push(r);
   const norm = normalizeRegion(q);
-  if (REGIONS.includes(norm)) push(norm);
-  for (const r of REGIONS) {
+  if (R.regions.includes(norm)) push(norm);
+  for (const r of R.regions) {
     if (typeof limit === "number" && out.length >= limit) break;
     if (r.includes(q) || q.includes(r)) push(r);
   }
@@ -6368,62 +6443,382 @@ function ensureXLSX() {
 
 // ---------- 订单解析 ----------
 
-function parseOrderText(text) {
-  // 粘贴出来的是【塌掉的表格】：单元格边界没了，行与行之间会夹各种东西
-  // （单品订单的"查看详情"、服务标签、商品状态…）。
-  // 所以不能靠"价格行的下一行就是数量"这种位置假设，改成：
-  //   按「货号」把文本切成块，每块 = 一件商品，再在块内找数量。
-  // 这样中间夹多少行都不影响，也不用去区分单品/多品订单。
+// 粘贴出来的是【塌掉的表格】：单元格边界没了，行与行之间会夹各种东西
+// （单品订单的"查看详情"、服务标签、商品状态…）。
+// 所以不能靠"价格行的下一行就是数量"这种位置假设，改成：
+//   按「货号」把文本切成块，每块 = 一件商品，再在块内找数量。
+// 这样中间夹多少行都不影响，也不用去区分单品/多品订单。
+//
+// 返回 { items, skipped }。skipped 是「有货号却没读出数量」的块 ——
+// 以前这些是被悄悄丢掉的：3 件里丢 1 件，界面照样说"解析成功"，只是少算了钱。
+function parseOrderDetailed(text, known) {
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-  const items = []; // { model, qty }
+  const items = [];   // { model, qty }
+  const skipped = []; // { model, kind, reason }
+  const lib = known || new Set(Object.keys(loadWeightLib()));
 
   let model = null;
   let block = [];
 
   const flush = () => {
     if (model) {
+      const nPrice = block.filter((l) => PRICE_LINE.test(l)).length;
       const qty = pickQty(block);
-      if (qty != null) items.push({ model, qty });
+      if (qty != null) {
+        items.push({ model, qty });
+        // 一个货号块里不该有两条单价行 —— 有的话是中间那件商品的「货号」行没抓到，
+        // 它的单价/数量都并进了这一块，被静默吞掉
+        if (nPrice > 1) {
+          skipped.push({ model, kind: "multiPrice", reason: `有 ${nPrice} 条单价行，中间可能少了「货号」行` });
+        }
+      } else {
+        skipped.push({ model, kind: "noQty", reason: nPrice ? "没读出数量" : "没找到单价行" });
+      }
     }
     model = null;
     block = [];
   };
 
   for (const line of lines) {
-    const m = line.match(/货号:\s*(\S+)/);
+    // 冒号半角全角都要认：页面上「订单号：」「收货地址：」本来就是全角
+    const m = line.match(/货号[:：]\s*(\S+)/);
     if (m) {
       flush(); // 上一件商品到此为止
-      // "0594蓝色" → 去掉颜色 → "0594蓝" → 取开头的字母数字 → "0594"
-      const raw = m[1].replace(/[色\s]/g, "");
-      const mm = raw.match(/^([A-Za-z0-9]+[-]?[A-Za-z0-9]*)/);
-      model = (mm ? mm[1] : raw).toLowerCase();
+      model = normalizeModel(m[1], lib);
       continue;
     }
     if (model) block.push(line);
   }
   flush();
 
-  return items;
+  return { items, skipped };
 }
+
+// 老接口：只要商品列表
+function parseOrderText(text, known) {
+  return parseOrderDetailed(text, known).items;
+}
+
+// 末尾颜色词：蓝色/黑色… 以及米白、藏青这种不带"色"字的
+const COLOR_TAIL = /(?:[黑白灰红蓝绿黄紫粉棕橙青银金]色|米白|藏青|卡其|军绿|酒红|天蓝|宝蓝|深蓝|浅蓝|咖啡)+$/;
+
+// 订单里的「货号」是「货号+颜色」拼起来的（A1001蓝色），
+// 但货号本身可能带中文规格后缀（B2001标准 / B2001大号），所以不能无脑砍中文。
+// 拿重量库当字典做最长前缀匹配：B2001标准白色 → B2001标准。
+function normalizeModel(raw, lib) {
+  const s = String(raw).trim();
+  for (let n = s.length; n > 0; n--) {
+    const cand = s.slice(0, n).toLowerCase();
+    if (lib.has(cand)) return cand;
+  }
+  // 库里没有：只切末尾颜色，中文后缀留着 —— 界面上会显示「B2001标准」，
+  // 一眼能看出是哪个货号没录进重量库，而不是被砍成 B2001 反而查错
+  const stripped = s.replace(COLOR_TAIL, "");
+  return (stripped || s).toLowerCase();
+}
+
+// 单价行长这样："5.00 元/件"「4.40 元/个」。单位不止件/个 —— 只认「元/」后面跟一个
+// 非空白非数字的字符。写死「件|个」的话，「元/条」会让整件商品被丢掉。
+const PRICE_LINE = /元\/[^\s\d]/;
+
+// 数量单独占一行时的各种写法：「2」「2件」「2 件」「×2」「数量：2」
+// 结尾的千分位/小数都不认，所以 "12.00" 不会误判成 12
+const QTY_LINE = /^(?:数量[：:]\s*)?(?:[×xX*]\s*)?(\d{1,4})\s*(?:件|个|条|套|盒|包|只|双|组|支|张|箱|对|袋|瓶|罐|本|台|把|副|枚|粒|片|块)?$/;
 
 // 在一件商品的文本块里找数量
 function pickQty(block) {
   // 情况一：价格和数量在同一行 —— "5.00 元/件  3  -  已确认收货"
   // 限 4 位：订单号（19 位）、支付宝交易号（28 位）永远不可能被当成数量
   for (const line of block) {
-    const m = line.match(/元\/(?:件|个)\s*(\d+)/);
-    if (m && m[1].length <= 4) return parseInt(m[1], 10);
+    const m = line.match(/元\/[^\s\d]\s*(\d{1,4})(?!\d)/);
+    if (m) return parseInt(m[1], 10);
   }
 
   // 情况二：数量在价格行之后，中间可能夹任意行（"查看详情"等）
-  const idx = block.findIndex((l) => /元\/(?:件|个)/.test(l));
+  const idx = block.findIndex((l) => PRICE_LINE.test(l));
   if (idx < 0) return null;
   for (let k = idx + 1; k < block.length; k++) {
-    const m = block[k].match(/^(\d{1,4})$/);
+    const m = block[k].match(QTY_LINE);
     if (m) return parseInt(m[1], 10);
   }
   return null;
 }
+
+// ---------- 计费公式引擎 ----------
+//
+// 规则要能在界面上改，所以得能算「用户写的算式」。但不能用 eval / new Function ——
+// 规则可以导出、可以导入，用 eval 就等于「导入别人给的规则文件 = 在你浏览器里跑
+// 别人的代码」。所以这里手写一个解析器，只认白名单里的运算符和函数。
+
+const FORMULA_FUNCS = {
+  最大: (...a) => Math.max(...a),
+  最小: (...a) => Math.min(...a),
+  向上取整: (x) => Math.ceil(x),
+  向下取整: (x) => Math.floor(x),
+  四舍五入: (x, n) => { const p = Math.pow(10, n || 0); return Math.round(x * p) / p; },
+  绝对值: (x) => Math.abs(x),
+  如果: (c, a, b) => (Number(c) ? a : b),
+  max: (...a) => Math.max(...a),
+  min: (...a) => Math.min(...a),
+  ceil: (x) => Math.ceil(x),
+  floor: (x) => Math.floor(x),
+  round: (x, n) => { const p = Math.pow(10, n || 0); return Math.round(x * p) / p; },
+  abs: (x) => Math.abs(x),
+  if: (c, a, b) => (Number(c) ? a : b),
+};
+const FORMULA_VARS = new Set(["重量", "w", "weight"]);
+
+function tokenizeFormula(src) {
+  const s = String(src);
+  const out = [];
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (/\s/.test(c)) { i++; continue; }
+    if (c === "且") { out.push({ k: "op", v: "&&", p: i }); i++; continue; }
+    if (c === "或") { out.push({ k: "op", v: "||", p: i }); i++; continue; }
+    if (/[0-9]/.test(c) || (c === "." && /[0-9]/.test(s[i + 1] || ""))) {
+      let j = i;
+      while (j < s.length && /[0-9.]/.test(s[j])) j++;
+      const raw = s.slice(i, j);
+      if ((raw.match(/\./g) || []).length > 1) throw new Error(`「${raw}」不是合法数字`);
+      out.push({ k: "num", v: parseFloat(raw), p: i });
+      i = j;
+      continue;
+    }
+    if (/[A-Za-z_一-龥]/.test(c)) {
+      let j = i;
+      while (j < s.length && /[A-Za-z0-9_一-龥]/.test(s[j])) j++;
+      out.push({ k: "ident", v: s.slice(i, j), p: i });
+      i = j;
+      continue;
+    }
+    const two = s.slice(i, i + 2);
+    if (["<=", ">=", "==", "!=", "&&", "||"].includes(two)) { out.push({ k: "op", v: two, p: i }); i += 2; continue; }
+    if ("+-*/%(),<>".includes(c)) { out.push({ k: "op", v: c, p: i }); i++; continue; }
+    throw new Error(`不认识的字符「${c}」`);
+  }
+  return out;
+}
+
+function parseFormula(src) {
+  const toks = tokenizeFormula(src);
+  let i = 0;
+  const isOp = (v) => { const t = toks[i]; return !!t && t.k === "op" && t.v === v; };
+  const eat = (v) => {
+    if (!isOp(v)) {
+      const t = toks[i];
+      throw new Error(t ? `第 ${t.p + 1} 个字符：这里应该是「${v}」，实际是「${t.v}」` : `算式没写完，少了「${v}」`);
+    }
+    i++;
+  };
+
+  function parseOr() {
+    let l = parseAnd();
+    while (isOp("||")) { i++; l = { t: "bin", op: "||", l, r: parseAnd() }; }
+    return l;
+  }
+  function parseAnd() {
+    let l = parseCmp();
+    while (isOp("&&")) { i++; l = { t: "bin", op: "&&", l, r: parseCmp() }; }
+    return l;
+  }
+  function parseCmp() {
+    let l = parseAdd();
+    while (["==", "!=", "<", "<=", ">", ">="].some(isOp)) {
+      const op = toks[i].v; i++;
+      l = { t: "bin", op, l, r: parseAdd() };
+    }
+    return l;
+  }
+  function parseAdd() {
+    let l = parseMul();
+    while (isOp("+") || isOp("-")) { const op = toks[i].v; i++; l = { t: "bin", op, l, r: parseMul() }; }
+    return l;
+  }
+  function parseMul() {
+    let l = parseUnary();
+    while (isOp("*") || isOp("/") || isOp("%")) { const op = toks[i].v; i++; l = { t: "bin", op, l, r: parseUnary() }; }
+    return l;
+  }
+  function parseUnary() {
+    if (isOp("-")) { i++; return { t: "un", x: parseUnary() }; }
+    if (isOp("+")) { i++; return parseUnary(); }
+    return parsePrimary();
+  }
+  function parsePrimary() {
+    const t = toks[i];
+    if (!t) throw new Error("算式没写完");
+    if (t.k === "num") { i++; return { t: "num", v: t.v }; }
+    if (t.k === "ident") {
+      i++;
+      if (isOp("(")) {
+        i++;
+        const args = [];
+        if (!isOp(")")) {
+          args.push(parseOr());
+          while (isOp(",")) { i++; args.push(parseOr()); }
+        }
+        eat(")");
+        if (!FORMULA_FUNCS[t.v]) throw new Error(`没有「${t.v}」这个函数`);
+        return { t: "call", name: t.v, args };
+      }
+      if (!FORMULA_VARS.has(t.v)) throw new Error(`不认识的变量「${t.v}」（只认「重量」）`);
+      return { t: "var" };
+    }
+    if (t.k === "op" && t.v === "(") { i++; const e = parseOr(); eat(")"); return e; }
+    throw new Error(`第 ${t.p + 1} 个字符：这里不该出现「${t.v}」`);
+  }
+
+  const ast = parseOr();
+  if (i < toks.length) throw new Error(`第 ${toks[i].p + 1} 个字符：算式后面多了「${toks[i].v}」`);
+  return ast;
+}
+
+function evalFormula(ast, weight) {
+  switch (ast.t) {
+    case "num": return ast.v;
+    case "var": return weight;
+    case "un": return -evalFormula(ast.x, weight);
+    case "bin": {
+      const a = evalFormula(ast.l, weight);
+      if (ast.op === "&&") return (a && evalFormula(ast.r, weight)) ? 1 : 0;
+      if (ast.op === "||") return (a || evalFormula(ast.r, weight)) ? 1 : 0;
+      const b = evalFormula(ast.r, weight);
+      switch (ast.op) {
+        case "+": return a + b;
+        case "-": return a - b;
+        case "*": return a * b;
+        case "/": return a / b;
+        case "%": return a % b;
+        case "<": return a < b ? 1 : 0;
+        case "<=": return a <= b ? 1 : 0;
+        case ">": return a > b ? 1 : 0;
+        case ">=": return a >= b ? 1 : 0;
+        case "==": return a === b ? 1 : 0;
+        case "!=": return a !== b ? 1 : 0;
+      }
+      throw new Error(`不认识的运算符「${ast.op}」`);
+    }
+    case "call": {
+      const v = FORMULA_FUNCS[ast.name](...ast.args.map((a) => evalFormula(a, weight)));
+      return typeof v === "number" ? v : NaN;
+    }
+  }
+  throw new Error("算式结构不对");
+}
+
+// 编译并试算一次（拿 5kg），界面上要能立刻告诉你哪儿写错了
+function compileFormula(src) {
+  const text = String(src == null ? "" : src).trim();
+  if (!text) return { ok: false, error: "算式不能为空" };
+  try {
+    const ast = parseFormula(text);
+    const sample = evalFormula(ast, 5);
+    if (!isFinite(sample)) return { ok: false, error: "拿 5kg 试算，结果不是有限数" };
+    return { ok: true, ast, sample };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// ---------- 运费规则 ----------
+
+const STORAGE_KEY_RULES = "shipping_rate_rules";
+
+// ★ v3.0 不对外开放「改运费规则」。引擎照常跑（默认规则），只是界面上不给入口。
+//   改成 true 就恢复：右栏「规则说明」出现「编辑」按钮，可按地区覆盖公式、
+//   存 localStorage、带导入导出。
+//   关掉时下面 getRules() 会忽略 localStorage 里存的那份 —— 保证线上算出来的钱
+//   只由代码决定，不受任何人本地改过的东西影响。
+const RULES_EDITOR_ENABLED = false;
+
+// 出厂设置。用户改过的存在 localStorage，会盖住这一份。
+// 改这里 = 改默认值；要推到老用户身上得 bump RULES_VERSION（见 getRules）。
+const RULES_VERSION = 3;
+const DEFAULT_RULES = {
+  version: RULES_VERSION,
+  noShip: ["新疆", "西藏", "香港", "澳门", "台湾"],
+  specialCities: ["舟山", "延安"],
+  small: {
+    // ≤12kg
+    default: "重量 * 3",
+    byRegion: {
+      "甘肃": "重量 * 5.5", "宁夏": "重量 * 5.5", "云南": "重量 * 5.5",
+      "广西": "重量 * 5.5", "青海": "重量 * 5.5", "贵州": "重量 * 5.5",
+      "海南": "重量 * 5.5", "内蒙古": "重量 * 5.5",
+    },
+  },
+  big: {
+    // >12kg。这条逐字复现原来的阶梯，别乱改：
+    //   13–15 按 15kg、16–20 按 20kg、21 以上实重、≥90 不收基础费
+    //   中间那几段「如果(... < 16, 重量, ...)」是原样的兜底 ——
+    //   15–16kg 之间按实重算，不是并进 20kg。少了它会悄悄改价。
+    default: "如果(重量 <= 15, 15, 如果(重量 < 16, 重量, 如果(重量 <= 20, 20, 重量))) * 1.5 + 如果(重量 >= 90, 0, 10)",
+    byRegion: {
+      "海南": "重量 * 4 + 10",
+      "甘肃": "重量 * 2.5 + 10", "青海": "重量 * 2.5 + 10",
+      "云南": "重量 * 2 + 10", "宁夏": "重量 * 2 + 10",
+      "四川": "重量 * 1.8 + 10", "福建": "重量 * 1.8 + 10", "吉林": "重量 * 1.8 + 10",
+      "舟山": "重量 * 1.8 + 10", "延安": "重量 * 1.8 + 10",
+      "广西": "重量 * 1.8 + 10", "贵州": "重量 * 1.8 + 10",
+    },
+  },
+};
+
+function cloneRules(r) { return JSON.parse(JSON.stringify(r)); }
+
+// 补齐缺字段、算出派生集合。外面给什么都别把程序搞崩。
+function normalizeRules(raw) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  const D = DEFAULT_RULES;
+  const list = (v, fallback) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()) : fallback.slice());
+  const stage = (v, d) => ({
+    default: typeof v?.default === "string" && v.default.trim() ? v.default.trim() : d.default,
+    byRegion: (v && typeof v.byRegion === "object" && v.byRegion) ? Object.fromEntries(
+      Object.entries(v.byRegion).filter(([k, x]) => k.trim() && typeof x === "string" && x.trim()).map(([k, x]) => [k.trim(), x.trim()])
+    ) : { ...d.byRegion },
+  });
+  const out = {
+    version: Number(r.version) || D.version,
+    noShip: list(r.noShip, D.noShip),
+    specialCities: list(r.specialCities, D.specialCities),
+    small: stage(r.small, D.small),
+    big: stage(r.big, D.big),
+  };
+  // 派生：可识别地区 = 基础字典 + 用户自己加的独立计费城市
+  out.regions = out.specialCities.reduce((a, c) => (a.includes(c) ? a : a.concat(c)), REGIONS.slice());
+  out.noShipSet = new Set(out.noShip);
+  out.specialCitySet = new Set(out.specialCities);
+  return out;
+}
+
+let __rules = null;
+function getRules() {
+  if (__rules) return __rules;
+  let saved = null;
+  if (RULES_EDITOR_ENABLED) {
+    try { const raw = localStorage.getItem(STORAGE_KEY_RULES); if (raw) saved = JSON.parse(raw); } catch {}
+  }
+  __rules = normalizeRules(saved || DEFAULT_RULES);
+  if (saved) __rules.stale = Number(saved.version || 0) < RULES_VERSION;
+  return __rules;
+}
+function invalidateRules() { __rules = null; }
+function saveRules(r) {
+  const clean = normalizeRules(r);
+  clean.version = RULES_VERSION;
+  clean.stale = false;
+  try {
+    localStorage.setItem(STORAGE_KEY_RULES, JSON.stringify({
+      version: clean.version, noShip: clean.noShip, specialCities: clean.specialCities,
+      small: clean.small, big: clean.big,
+    }));
+  } catch {}
+  __rules = clean;
+  return clean;
+}
+function resetRules() { try { localStorage.removeItem(STORAGE_KEY_RULES); } catch {} invalidateRules(); return getRules(); }
 
 // ---------- 运费计算 ----------
 
@@ -6434,53 +6829,58 @@ function calcShipping({ weightInput, region, ceilWeight }) {
     return { ok: false, message: "请输入正确的重量（kg）。", meta: "", money: null, rate: null };
   }
   if (!regionNorm) {
+    const cand = regionCandidates(region);
+    if (cand.length) {
+      return {
+        ok: false,
+        message: `「${String(region).trim()}」在多个省份都有，请选一个。`,
+        meta: `候选：${cand.join(" / ")}`,
+        money: null, rate: null, candidates: cand,
+      };
+    }
     return { ok: false, message: "请选择地域。", meta: "", money: null, rate: null };
   }
-  if (!REGIONS.includes(regionNorm)) {
+  const R = getRules();
+  if (!R.regions.includes(regionNorm)) {
     return { ok: false, message: "未识别到省份/地区。", meta: `你输入的是：${region}`, money: null, rate: null };
   }
-  if (NO_SHIP.has(regionNorm)) {
-    return { ok: false, message: `${regionNorm} 不发快递。`, meta: "规则：新疆/西藏不发快递", money: null, rate: null };
+  if (R.noShipSet.has(regionNorm)) {
+    return { ok: false, message: `${regionNorm} 不发快递。`, meta: `规则：${R.noShip.join(" / ")} 不发快递`, money: null, rate: null };
   }
 
   const w = ceilWeight ? Math.ceil(w0) : w0;
+  // 12kg 是分档线，写死在引擎里：≤12kg 走 small 那套公式，>12kg 走 big
+  const stage = w <= 12 ? R.small : R.big;
+  const own = stage.byRegion[regionNorm];   // 这个地区有没有自己的专用公式
+  const expr = own || stage.default;
 
-  if (w <= 12) {
-    if (COMMON_UPTO12_HIGH.has(regionNorm)) {
-      const rate = 5.5;
-      return { ok: true, money: w * rate, rate, message: `运费：¥${formatMoney(w * rate)}`, meta: `≤12kg高单价：${regionNorm} = 重量 × ${rate}；计费重量=${w}` };
-    }
-    const rate = 3;
-    return { ok: true, money: w * rate, rate, message: `运费：¥${formatMoney(w * rate)}`, meta: `≤12kg普通价：${regionNorm} = 重量 × ${rate}；计费重量=${w}` };
+  const c = compileFormula(expr);
+  if (!c.ok) {
+    return {
+      ok: false,
+      message: `「${regionNorm}」的计费公式写错了，去「规则说明 → 编辑」改一下。`,
+      meta: `公式：${expr}\n错误：${c.error}`,
+      money: null, rate: null,
+    };
+  }
+  const money = evalFormula(c.ast, w);
+  if (!isFinite(money) || money < 0) {
+    return {
+      ok: false,
+      message: `「${regionNorm}」的公式算出来的结果不对。`,
+      meta: `公式：${expr}\n计费重量=${w}，算出来=${money}`,
+      money: null, rate: null,
+    };
   }
 
-  if (SPECIAL_RATE.has(regionNorm)) {
-    const rate = SPECIAL_RATE.get(regionNorm);
-    const money = w * rate + 10;
-    return { ok: true, money, rate, message: `运费：¥${formatMoney(money)}`, meta: `>12kg特殊地区价：${regionNorm} = 重量 × ${rate} + 10；计费重量=${w}` };
-  }
-
-  const wForBand = ceilWeight ? w : (w > 12 && w < 13 ? 13 : w);
-  let money = 0, meta = "", rate = 1.5;
-
-  if (wForBand >= 13 && wForBand <= 15) {
-    money = 15 * 1.5 + 10;
-    meta = ">12kg阶梯价：13–15kg 按15kg计费 = 15×1.5+10";
-  } else if (wForBand >= 16 && wForBand <= 20) {
-    money = 20 * 1.5 + 10;
-    meta = ">12kg阶梯价：16–20kg 按20kg计费 = 20×1.5+10";
-  } else if (wForBand >= 21 && wForBand <= 89) {
-    money = wForBand * 1.5 + 10;
-    meta = `>12kg阶梯价：21–89kg = 重量×1.5+10；计费重量=${wForBand}`;
-  } else if (wForBand >= 90) {
-    money = wForBand * 1.5;
-    meta = `>12kg阶梯价：≥90kg = 重量×1.5；计费重量=${wForBand}`;
-  } else {
-    money = wForBand * 1.5 + 10;
-    meta = `>12kg阶梯价：兜底使用 重量×1.5+10；计费重量=${wForBand}`;
-  }
-
-  return { ok: true, money, rate, message: `运费：¥${formatMoney(money)}`, meta };
+  return {
+    ok: true,
+    money,
+    rate: w > 0 ? money / w : null,   // 均价，不是「单价」—— 阶梯/公式下没有单一单价
+    expr,
+    message: `运费：¥${formatMoney(money)}`,
+    meta: `${w <= 12 ? "≤12kg" : ">12kg"}${own ? `（${regionNorm} 专用）` : ""}：${expr}；计费重量=${w}`,
+  };
 }
 
 // ==============================
@@ -6513,7 +6913,7 @@ function renderResult(payload, { region, w0, wUsed, ceilWeight }) {
 `📍 运费明细
 省份：${region}
 重量：${wUsed} kg
-单价：${payload.rate != null ? formatMoney(payload.rate) : "-"} 元/kg
+均价：${payload.rate != null ? formatMoney(payload.rate) : "-"} 元/kg
 ─────────────
 💵 总价：${moneyText} 元`;
 
@@ -6607,6 +7007,19 @@ function switchMode(mode) {
   if (mode === "multi") renderProductRows();
 }
 
+// 结果区还没算过时的占位。顺带说清这个框是干嘛的 ——
+// 否则一片空白，第一次用的人不知道这里会出东西。
+function renderResultPlaceholder() {
+  const el = document.getElementById("result");
+  if (!el) return;
+  const tip = {
+    single: "输入重量和地域，点「计算」",
+    multi: "填好商品清单和地域，点「计算」",
+    paste: "粘贴订单，点「解析订单」",
+  }[getMode()] || "";
+  el.innerHTML = `<div class="placeholder"><span class="ph-title">运费显示在这里</span>${tip}</div>`;
+}
+
 function renderProductRows() {
   const tbody = document.querySelector("#productTable tbody");
   if (tbody.querySelectorAll(".product-row").length === 0) addProductRow();
@@ -6656,7 +7069,7 @@ function setup() {
 
     if (mode === "paste") {
       const totalW = getParseTotal();
-      if (totalW <= 0) { $("result").innerHTML = `<div class="bad">请先解析订单或填写缺失的重量。</div>`; $("copyBtnWrap").innerHTML = ""; return; }
+      if (totalW <= 0) { $("result").innerHTML = `<div class="bad">请先解析订单，或把表格里缺的重量/数量填上。</div>`; $("copyBtnWrap").innerHTML = ""; return; }
       const wUsed = ceilWeight ? Math.ceil(totalW) : totalW;
       const payload = calcShipping({ weightInput: String(wUsed), region, ceilWeight: false });
       renderResult(payload, { region: normalizeRegion(region) || region, w0: totalW.toFixed(2), wUsed, ceilWeight: true });
@@ -6677,7 +7090,8 @@ function setup() {
       // 未匹配的行用手动填的输入框，已匹配的行重量是纯文本单元格
       const input = row.querySelector(".pw-input");
       const w = parseFloat(input ? input.value : (row.querySelector(".pw-val")?.textContent || ""));
-      const q = parseInt(row.querySelector(".pq-val")?.textContent, 10);
+      // 数量：已识别的行是纯文本格子，没读出来的行是可填的输入框
+      const q = parseInt(row.querySelector(".pq-input")?.value || row.querySelector(".pq-val")?.textContent || "", 10);
       if (!isNaN(w) && w > 0 && !isNaN(q) && q > 0) total += w * q;
     });
     return total;
@@ -6687,12 +7101,12 @@ function setup() {
   document.querySelectorAll(".tab-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       switchMode(btn.dataset.tab);
-      $("result").innerHTML = `<div class="meta">请${({single:"输入重量",multi:"填写商品清单",paste:"智能计算"})[getMode()]}后点击"计算"。</div>`;
+      renderResultPlaceholder();
       $("copyBtnWrap").innerHTML = "";
       // 智能计算模式下检查重量库
       if (btn.dataset.tab === "paste" && getLibCount() === 0) {
         const hint = document.getElementById("unmatchedHint");
-        if (hint) hint.innerHTML = `💡 首次使用请先展开底部 <b>📦 重量库管理</b> → 点击"📂 导入文件"导入你的Excel货号重量表。`;
+        if (hint) hint.innerHTML = `💡 首次使用请先展开 <b>📦 重量库管理</b> → 点击"📂 导入文件"导入你的Excel货号重量表。`;
       }
     });
   });
@@ -6710,8 +7124,9 @@ function setup() {
       if (norm) regionEl.value = norm;
     }
 
-    const items = parseOrderText(text);
-    if (items.length === 0) { alert("未识别到货号和数量，请确认粘贴内容格式。"); return; }
+    const { items, skipped } = parseOrderDetailed(text);
+    const todo = skipped.filter((s) => s.kind === "noQty");
+    if (items.length === 0 && todo.length === 0) { alert("未识别到货号和数量，请确认粘贴内容格式。"); return; }
 
     const lib = loadWeightLib();
     const tbody = document.querySelector("#parseTable tbody");
@@ -6740,9 +7155,40 @@ function setup() {
       tbody.appendChild(row);
     }
 
-    document.getElementById("parseStatus").textContent = `（${items.length} 项，已匹配 ${matched}${unmatched > 0 ? `，${unmatched} 项需手动填重量` : ""}）`;
-    document.getElementById("unmatchedHint").textContent = unmatched > 0
-      ? `⚠️ ${unmatched} 个货号在重量库中未找到，请在表格中手动填写重量。填完点击"计算"即可。`
+    // 有货号但没读出数量的，单独列在最下面并留一个数量输入框。
+    // 这些以前是直接丢掉的，界面还照样说「解析成功」—— 于是就少算了钱。
+    for (const s of todo) {
+      const weight = lib[s.model.toLowerCase()];
+      const row = document.createElement("tr");
+      row.className = "row-todo";
+      row.innerHTML = `<td>${s.model}</td>
+        <td><input class="pq-input" type="number" step="1" min="1" placeholder="填数量" /></td>
+        ${weight != null
+          ? `<td class="pw-val">${weight}</td>`
+          : `<td><input class="pw-input" type="number" step="0.01" min="0" placeholder="填重量" /></td>`}
+        <td class="ps-calc">-</td>`;
+      row.addEventListener("input", () => {
+        const q = parseInt(row.querySelector(".pq-input").value, 10);
+        const wEl = row.querySelector(".pw-input");
+        const w = wEl ? parseFloat(wEl.value) : parseFloat(row.querySelector(".pw-val").textContent);
+        row.querySelector(".ps-calc").textContent =
+          (!isNaN(w) && w > 0 && !isNaN(q) && q > 0) ? (w * q).toFixed(2) + " kg" : "-";
+      });
+      tbody.appendChild(row);
+    }
+
+    document.getElementById("parseStatus").textContent =
+      `（${items.length + todo.length} 项，已匹配 ${matched}`
+      + (unmatched > 0 ? `，${unmatched} 项需填重量` : "")
+      + (todo.length > 0 ? `，${todo.length} 项需填数量` : "")
+      + `）`;
+
+    const hints = [];
+    if (unmatched > 0) hints.push(`⚠️ ${unmatched} 个货号在重量库中未找到，请填重量。`);
+    if (todo.length > 0) hints.push(`⚠️ ${todo.length} 个货号没读出数量，已列在表格最后，请填数量。`);
+    for (const s of skipped) if (s.kind === "multiPrice") hints.push(`⚠️ ${s.model}：${s.reason}。`);
+    document.getElementById("unmatchedHint").innerHTML = hints.length
+      ? hints.join("<br>") + "<br>填完点「计算」即可。"
       : "✅ 全部匹配成功！";
     document.getElementById("parseResult").classList.remove("hidden");
     updateParseTotal();
@@ -6796,6 +7242,30 @@ function setup() {
       if (modelIdx >= 0 && weightIdx >= 0) return { row: r, modelIdx, weightIdx };
     }
     return null;
+  }
+
+  // 只取前 n 行，避免为了找表头把整张表都转成数组
+  function sheetHeadRows(XLSXLIB, ws, n) {
+    const r = XLSXLIB.utils.decode_range(ws["!ref"]);
+    const addr = XLSXLIB.utils.encode_range({
+      s: { r: r.s.r, c: r.s.c },
+      e: { r: Math.min(r.e.r, r.s.r + n - 1), c: r.e.c },
+    });
+    return XLSXLIB.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: true, raw: false, range: addr });
+  }
+
+  // 一个工作簿里常有好几张表（数据表 / 店铺报价 / …），导出时谁排前面不保证。
+  // 只认第一张的话，「店铺报价」排到前面就会认不出表头、退回前两列兜底，把报价串当货号灌进去。
+  // 所以挨张扫前几行，认出表头才整张读；都认不出才退回第一张走兜底。
+  function pickSheetRows(XLSXLIB, wb) {
+    const names = wb.SheetNames || [];
+    const full = (name) => XLSXLIB.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "", blankrows: true, raw: false });
+    for (const name of names) {
+      const ws = wb.Sheets[name];
+      if (!ws || !ws["!ref"]) continue;
+      if (findHeaderRow(sheetHeadRows(XLSXLIB, ws, HEADER_SCAN_ROWS))) return full(name);
+    }
+    return (names.length && wb.Sheets[names[0]]) ? full(names[0]) : [];
   }
 
   // 「标准：0.3」「加大：0.35」「5.8-6」都取第一个数字
@@ -6904,9 +7374,7 @@ function setup() {
     alert(msg);
   }
 
-  document.getElementById("libFileInput").addEventListener("change", (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  function importLibFile(file) {
     const isXLSX = file.name.match(/\.xlsx?$/i);
 
     if (isXLSX) {
@@ -6920,10 +7388,9 @@ function setup() {
         reader.onload = (ev) => {
           try {
             const wb = XLSXLIB.read(ev.target.result, { type: "array" });
-            const ws = wb.Sheets[wb.SheetNames[0]];
             // 直接取二维数组按列号定位，不再走 sheet_to_csv ——
             // 序列化成文本再按逗号切，正是之前只进去 8 个货号的原因
-            const rows = XLSXLIB.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: true, raw: false });
+            const rows = pickSheetRows(XLSXLIB, wb);
             importRows(rows);
           } catch (err) {
             alert(`❌ 解析 Excel 失败：${err.message}\n请尝试另存为 CSV 格式后再导入。`);
@@ -6941,8 +7408,55 @@ function setup() {
       };
       reader.readAsText(file);
     }
+  }
 
+  document.getElementById("libFileInput").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (file) importLibFile(file);
     e.target.value = "";
+  });
+
+  // 把 Excel/CSV 直接拖到页面上就能导入，不用先点按钮再翻目录
+  const dropOverlay = document.getElementById("dropOverlay");
+  const libPanel = document.getElementById("libPanel");
+  const SPREADSHEET = /\.(xlsx?|csv)$/i;
+  const hasFiles = (e) => !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files"));
+  let dragDepth = 0;
+
+  const showDrop = (on) => {
+    dropOverlay.classList.toggle("hidden", !on);
+    libPanel.classList.toggle("drop-active", on);
+  };
+
+  document.addEventListener("dragenter", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth++;
+    showDrop(true);
+  });
+  document.addEventListener("dragover", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  });
+  document.addEventListener("dragleave", (e) => {
+    if (!hasFiles(e)) return;
+    // 拖过子元素也会触发 leave，所以用计数判断真的离开了窗口
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) showDrop(false);
+  });
+  document.addEventListener("drop", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth = 0;
+    showDrop(false);
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!file) return;
+    if (!SPREADSHEET.test(file.name)) {
+      alert(`「${file.name}」不是表格文件。\n重量库只认 .xlsx / .xls / .csv。`);
+      return;
+    }
+    importLibFile(file);
   });
 
   document.getElementById("clearLibBtn").addEventListener("click", () => {
@@ -7053,14 +7567,256 @@ function setup() {
     document.getElementById("parseResult").classList.add("hidden");
     document.querySelector("#parseTable tbody").innerHTML = "";
     document.getElementById("parseTotal").textContent = "";
-    $("result").innerHTML = `<div class="meta">请${({single:"输入重量",multi:"填写商品清单",paste:"智能计算"})[getMode()]}后点击"计算"。</div>`;
+    renderResultPlaceholder();
     $("copyBtnWrap").innerHTML = "";
     renderSuggestList(getRegionSuggestions(""));
     weightEl.focus();
   });
 
+  // ---------- 运费规则：说明 + 编辑器 ----------
+
+  // 说明卡的内容从规则生成，不写死 —— 否则改了规则界面还在撒谎
+  function renderRulesSummary() {
+    const R = getRules();
+    const box = $("rulesSummary");
+    if (!box) return;
+    const names = (a) => (a.length ? a.map((x) => `<strong>${x}</strong>`).join("、") : "（无）");
+    // 同一个公式的地区合并成一行，不然 20 条要占满整栏
+    const grouped = (obj) => {
+      const m = new Map();
+      for (const [k, v] of Object.entries(obj)) {
+        if (!m.has(v)) m.set(v, []);
+        m.get(v).push(k);
+      }
+      return [...m].map(([expr, ks]) => `<li><code>${expr}</code> → ${ks.join("、")}</li>`).join("");
+    };
+    box.innerHTML =
+      (R.stale ? `<p class="rule-warn">出厂规则已更新到 v${RULES_VERSION}，你本地存的是旧版。想用新的点「编辑 → 恢复默认」。</p>` : "") +
+      `<p>不发快递：${names(R.noShip)}</p>` +
+      `<p style="margin-top:10px"><strong>≤12kg</strong>　默认 <code>${R.small.default}</code></p>` +
+      (Object.keys(R.small.byRegion).length ? `<ul class="rule-list rule-list-sm">${grouped(R.small.byRegion)}</ul>` : "") +
+      `<p style="margin-top:10px"><strong>&gt;12kg</strong>　默认 <code>${R.big.default}</code></p>` +
+      (Object.keys(R.big.byRegion).length ? `<ul class="rule-list rule-list-sm">${grouped(R.big.byRegion)}</ul>` : "");
+  }
+
+  const escAttr = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  let draft = null;
+
+  function openRulesEditor() {
+    const R = getRules();
+    draft = cloneRules({
+      noShip: R.noShip, specialCities: R.specialCities,
+      small: R.small, big: R.big,
+    });
+    renderRulesEditor();
+    $("rulesModal").classList.remove("hidden");
+    document.body.style.overflow = "hidden";
+  }
+  function closeRulesEditor() {
+    $("rulesModal").classList.add("hidden");
+    document.body.style.overflow = "";
+    draft = null;
+  }
+
+  function renderRulesEditor() {
+    const body = $("rulesBody");
+    if (!body || !draft) return;
+    // 可选地区 = 基础字典 + 用户自己加的独立计费城市
+    const dict = draft.specialCities.reduce((a, c) => (a.includes(c) ? a : a.concat(c)), REGIONS.slice());
+    const opts = (stage, sel) => {
+      const used = new Set(Object.keys(draft[stage].byRegion));
+      return dict.map((r) => {
+        const busy = used.has(r) && r !== sel;
+        return `<option value="${escAttr(r)}"${r === sel ? " selected" : ""}${busy ? " disabled" : ""}>${r}${busy ? "（下面已有）" : ""}</option>`;
+      }).join("");
+    };
+
+    const tagBlock = (key, title, note) => `
+      <div class="rule-block">
+        <h3>${title}${note ? `<span class="rule-note">${note}</span>` : ""}</h3>
+        <div class="tag-list">
+          ${draft[key].map((r, i) => `<span class="tag">${escAttr(r)}<button class="tag-del" data-tagdel="${key}:${i}" type="button" aria-label="删除 ${escAttr(r)}">✕</button></span>`).join("")}
+          <button class="tag-add" data-tagadd="${key}" type="button">+ 加地区</button>
+        </div>
+      </div>`;
+
+    const stageBlock = (key, title, note) => `
+      <div class="rule-block">
+        <h3>${title}${note ? `<span class="rule-note">${note}</span>` : ""}</h3>
+        <div class="rule-sub">默认公式（没单独列出的地区都用它）</div>
+        <div class="expr-row">
+          <input class="expr-input" data-expr="${key}.default" value="${escAttr(draft[key].default)}" spellcheck="false" autocomplete="off" />
+          <span class="expr-state"></span>
+        </div>
+        <div class="rule-sub">这些地区单独算</div>
+        ${Object.entries(draft[key].byRegion).map(([r, e]) => `
+          <div class="region-row">
+            <select data-region="${key}" data-old="${escAttr(r)}">${opts(key, r)}</select>
+            <div>
+              <input class="expr-input" data-expr="${key}.byRegion.${escAttr(r)}" value="${escAttr(e)}" spellcheck="false" autocomplete="off" />
+              <span class="expr-state"></span>
+            </div>
+            <button class="region-del" data-rowdel="${key}:${escAttr(r)}" type="button" aria-label="删掉这一条">✕</button>
+          </div>`).join("")}
+        <button class="btn-add-row" data-rowadd="${key}" type="button">+ 加一条</button>
+      </div>`;
+
+    body.innerHTML =
+      (getRules().stale ? `<div class="rule-warn">出厂规则已更新到 v${RULES_VERSION}，你本地存的是旧版。想用新的点「恢复默认」。</div>` : "") +
+      tagBlock("noShip", "不发快递", "算这些地区时直接拒绝") +
+      tagBlock("specialCities", "独立计费城市", "不跟着省走，单独算（如舟山、延安）") +
+      stageBlock("small", "≤12kg 的算法") +
+      stageBlock("big", "&gt;12kg 的算法") +
+      `<div class="rule-help">
+        变量只有一个：<code>重量</code>（kg）<br>
+        运算：<code>+ - * / % ( )</code>　比较：<code>&lt; &lt;= &gt; &gt;= == !=</code>　并且：<code>且</code>　或者：<code>或</code><br>
+        函数：<code>最大()</code> <code>最小()</code> <code>向上取整()</code> <code>向下取整()</code> <code>四舍五入()</code> <code>绝对值()</code><br>
+        条件：<code>如果(条件, 成立取这个, 否则取这个)</code>
+      </div>`;
+
+    body.querySelectorAll("[data-expr]").forEach(validateExprInput);
+  }
+
+  // 边打字边试算，写错了立刻标出来
+  function validateExprInput(inp) {
+    const state = inp.parentElement.querySelector(".expr-state");
+    if (!state) return true;
+    const r = compileFormula(inp.value);
+    state.className = "expr-state " + (r.ok ? "ok" : "bad");
+    state.textContent = r.ok ? `✓ 5kg 试算 = ${r.sample.toFixed(2)} 元` : `✗ ${r.error}`;
+    return r.ok;
+  }
+
+  const exprSetter = (path) => {
+    const p = path.split(".");
+    if (p.length === 2) return (v) => { draft[p[0]][p[1]] = v; };
+    const region = p.slice(2).join(".");
+    return (v) => { draft[p[0]].byRegion[region] = v; };
+  };
+
+  $("rulesBody").addEventListener("input", (e) => {
+    const inp = e.target.closest("[data-expr]");
+    if (!inp || !draft) return;
+    exprSetter(inp.getAttribute("data-expr"))(inp.value);
+    validateExprInput(inp);
+  });
+
+  $("rulesBody").addEventListener("change", (e) => {
+    const sel = e.target.closest("[data-region]");
+    if (!sel || !draft) return;
+    const stage = sel.getAttribute("data-region");
+    const old = sel.getAttribute("data-old");
+    if (old === sel.value) return;
+    const expr = draft[stage].byRegion[old];
+    delete draft[stage].byRegion[old];
+    draft[stage].byRegion[sel.value] = expr;
+    renderRulesEditor();   // 重画：「哪些已被占用」变了
+  });
+
+  $("rulesBody").addEventListener("click", (e) => {
+    if (!draft) return;
+    const t = e.target.closest("button");
+    if (!t) return;
+
+    const del = t.getAttribute("data-tagdel");
+    if (del) {
+      const [key, i] = del.split(":");
+      draft[key].splice(Number(i), 1);
+      renderRulesEditor();
+      return;
+    }
+    const add = t.getAttribute("data-tagadd");
+    if (add) {
+      const name = prompt(add === "noShip" ? "哪个地区不发快递？" : "哪个城市要单独计费？（要和地址里写的一致，比如「义乌」）");
+      if (!name || !name.trim()) return;
+      const v = name.trim();
+      if (draft[add].includes(v)) { alert(`「${v}」已经在列表里了。`); return; }
+      draft[add].push(v);
+      renderRulesEditor();
+      return;
+    }
+    const rowdel = t.getAttribute("data-rowdel");
+    if (rowdel) {
+      const idx = rowdel.indexOf(":");
+      delete draft[rowdel.slice(0, idx)].byRegion[rowdel.slice(idx + 1)];
+      renderRulesEditor();
+      return;
+    }
+    const rowadd = t.getAttribute("data-rowadd");
+    if (rowadd) {
+      const dict2 = draft.specialCities.reduce((a, c) => (a.includes(c) ? a : a.concat(c)), REGIONS.slice());
+      const free = dict2.find((r) => !(r in draft[rowadd].byRegion));
+      if (!free) { alert("所有地区都已经单独列过了。"); return; }
+      draft[rowadd].byRegion[free] = draft[rowadd].default;
+      renderRulesEditor();
+    }
+  });
+
+  // 开关关着时，连入口都不给
+  if (RULES_EDITOR_ENABLED) $("editRulesBtn").addEventListener("click", openRulesEditor);
+  else $("editRulesBtn").classList.add("hidden");
+  $("rulesCloseBtn").addEventListener("click", closeRulesEditor);
+  $("rulesCancelBtn").addEventListener("click", closeRulesEditor);
+  $("rulesMask").addEventListener("click", closeRulesEditor);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("rulesModal").classList.contains("hidden")) closeRulesEditor();
+  });
+
+  $("rulesSaveBtn").addEventListener("click", () => {
+    if (!draft) return;
+    let ok = true;
+    document.querySelectorAll("#rulesBody [data-expr]").forEach((inp) => { if (!validateExprInput(inp)) ok = false; });
+    if (!ok) { alert("有公式写错了，看标红的地方改一下再保存。"); return; }
+    if (!draft.small.default.trim() || !draft.big.default.trim()) { alert("默认公式不能空着。"); return; }
+    saveRules(draft);
+    renderRulesSummary();
+    closeRulesEditor();
+    doCalc();   // 规则变了，当前这笔重算一遍
+  });
+
+  $("rulesResetBtn").addEventListener("click", () => {
+    if (!confirm("把规则改回出厂设置？你自己改过的会丢。")) return;
+    resetRules();
+    openRulesEditor();       // 用恢复后的值重画
+    renderRulesSummary();
+    doCalc();
+  });
+
+  $("rulesExportBtn").addEventListener("click", () => {
+    const R = getRules();
+    const data = { version: R.version, noShip: R.noShip, specialCities: R.specialCities, small: R.small, big: R.big };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "运费规则.json";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+
+  $("rulesImportBtn").addEventListener("click", () => $("rulesFileInput").click());
+  $("rulesFileInput").addEventListener("change", (e) => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const obj = JSON.parse(String(reader.result));
+        if (!obj || typeof obj !== "object") throw new Error("不是一个对象");
+        draft = cloneRules(normalizeRules(obj));
+        renderRulesEditor();
+      } catch (err) {
+        alert(`❌ 这个文件读不了：${err.message}`);
+      }
+    };
+    reader.readAsText(f);
+  });
+
+  renderRulesSummary();
+
   // 初始
-  $("result").innerHTML = `<div class="meta">请选择模式后点击"计算"。</div>`;
+  renderResultPlaceholder();
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
